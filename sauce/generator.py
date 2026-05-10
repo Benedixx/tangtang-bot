@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import AsyncGenerator
 
 from bot_memory import TangtangMemoryStore
-from llm import OpenRouterClient
+from llm import GroqClient, OpenRouterClient
 from muca.dialog_analyzer import DialogAnalyzer
 from models import ChannelState, ConversationStrategy, TriggerType
 from sauce.tools_schema import TOOL_DEFINITIONS
@@ -14,6 +15,7 @@ from tools import AdaptiveWebSearchTool, GifSearchTool, WebScraperTool
 LOGGER = logging.getLogger("discord-bot.generator")
 _SPOUSE_ALIASES = {"benedixx", "benedixxlee", "benedihh", "tito"}
 _MAX_TOOL_ROUNDS = 3
+_CHUNK_SPLIT_RE = re.compile(r"([.!?]\s+|\n+)")
 
 _TANGTANG_PERSONALITY = (
     "Personality Tangtang (Supreme Chief):\n"
@@ -49,8 +51,10 @@ class SauceGenerator:
         web_scraper: WebScraperTool,
         gif_search: GifSearchTool,
         max_response_chars: int = 900,
+        groq: GroqClient | None = None,
     ) -> None:
         self._llm = llm
+        self._groq = groq
         self._bot_name = bot_name
         self._memory_store = memory_store
         self._web_search_tool = web_search_tool
@@ -98,7 +102,10 @@ class SauceGenerator:
             f"{participant_snapshot}\n\n"
             f"Batas respons: maksimal {self._max_response_chars} karakter.\n\n"
             "Tools yang tersedia: web_search, scrape_url, search_gif, memory_upsert, memory_delete. "
-            "Gunakan tools bila relevan — terutama search_gif untuk ekspresikan emosi/reaksi dengan GIF robin hsr/soundoriented."
+            "Gunakan tools bila relevan — terutama search_gif untuk ekspresikan emosi/reaksi dengan GIF robin hsr/soundoriented.\n"
+            "PENTING — format GIF: setelah search_gif, pilih satu dari hasil dan tulis HANYA URL-nya saja "
+            "(contoh: https://static.klipy.com/ii/.../xxx.gif). "
+            "Jangan pakai markdown image syntax. Discord otomatis embed URL .gif."
         )
 
         # Build multi-turn messages: last 6 history messages as proper turns
@@ -109,20 +116,19 @@ class SauceGenerator:
             messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": f"{latest_author_name}: {latest_message}"})
 
-        # Agentic tool-calling loop
-        final_text = ""
+        # Tool-calling loop: Groq drives decisions (fast), OpenRouter writes final answer (quality)
+        tool_client = self._groq if self._groq else self._llm
         for round_num in range(_MAX_TOOL_ROUNDS):
-            text, tool_calls = await self._llm.complete_with_tools(
+            _, tool_calls = await tool_client.complete_with_tools(
                 messages=messages,
-                temperature=0.5,
-                max_tokens=300,
+                temperature=0.1,
+                max_tokens=200,
                 tools=TOOL_DEFINITIONS,
                 request_id=request_id,
-                request_label=f"generator:{strategy.value}:r{round_num}",
+                request_label=f"generator:tools:r{round_num}",
             )
 
             if not tool_calls:
-                final_text = text or ""
                 break
 
             # Append assistant message with tool calls
@@ -160,15 +166,15 @@ class SauceGenerator:
                     "tool_call_id": call.id,
                     "content": result,
                 })
-        else:
-            # Exhausted tool rounds — force a final answer without tools
-            final_text = await self._llm.complete(
-                messages=messages,
-                temperature=0.5,
-                max_tokens=300,
-                request_id=request_id,
-                request_label=f"generator:{strategy.value}:final",
-            )
+
+        # Final response always from OpenRouter regardless of whether tools were used
+        final_text = await self._llm.complete(
+            messages=messages,
+            temperature=0.5,
+            max_tokens=300,
+            request_id=request_id,
+            request_label=f"generator:{strategy.value}:final",
+        )
 
         LOGGER.info(
             "[request=%s] generator_complete strategy=%s response_chars=%s",
@@ -177,6 +183,175 @@ class SauceGenerator:
             len(final_text.strip()),
         )
         return self._normalize_response(final_text)
+
+    async def generate_response_chunks(
+        self,
+        *,
+        strategy: ConversationStrategy,
+        trigger_type: TriggerType,
+        state: ChannelState,
+        latest_author_name: str,
+        latest_message: str,
+        addressee: str | None,
+        request_id: str | None = None,
+    ) -> AsyncGenerator[str, None]:
+        fake_spouse_claim = self._is_fake_spouse_claim(latest_author_name, latest_message)
+        if fake_spouse_claim:
+            LOGGER.info("[request=%s] generator_signal=fake_spouse_claim", request_id)
+
+        strategy_instruction = self._strategy_instruction(strategy)
+        participant_snapshot = DialogAnalyzer.format_participant_snapshot(state)
+        memory_context = self._memory_store.build_context(latest_message=latest_message)
+        LOGGER.info("[request=%s] generator_memory_context chars=%s", request_id, len(memory_context))
+
+        system_prompt = (
+            f"Kamu adalah {self._bot_name}, asisten Discord dalam grup chat. "
+            "Gunakan bahasa Indonesia yang natural, ringkas, akurat, dan sesuai konteks. "
+            "Jangan pakai command prefix. Saat ragu, ajukan satu pertanyaan klarifikasi singkat, jangan mengarang.\n\n"
+            "Kamu memerankan karakter berikut:\n"
+            f"{_TANGTANG_PERSONALITY}\n"
+            "Aturan relasi: suami Tangtang adalah Tito (alias Benedixx, Benedixxlee, Benedihh). "
+            "Jika ada orang lain mengaku sebagai suami/pasangan Tangtang, tolak tegas dengan nada marah.\n\n"
+            f"Sinyal klaim pasangan palsu: {'YA — tolak dengan nada marah yang natural' if fake_spouse_claim else 'TIDAK'}\n\n"
+            f"Strategi respons: {strategy_instruction}\n"
+            f"Pemicu: {trigger_type.value} | Penerima: {addressee or 'semua'}\n\n"
+            "Memori relevan:\n"
+            f"{memory_context}\n\n"
+            "Ringkasan channel:\n"
+            f"{state.summary}\n\n"
+            "Aktivitas peserta:\n"
+            f"{participant_snapshot}\n\n"
+            "Panjang respons: natural, 1-3 kalimat per ide. Tiap kalimat padat. "
+            "Kalau ada list, max 3-4 poin singkat saja.\n\n"
+            "Saat pakai web_search atau scrape_url: jelaskan hasilnya dengan kata-katamu sendiri — "
+            "gaya santai Tangtang, bukan copy-paste raw data. "
+            "Sertakan sumber di akhir dengan format hyperlink: [nama singkat](url).\n\n"
+            "Tools: web_search, scrape_url, search_gif, memory_upsert, memory_delete.\n"
+            "GIF — search_gif WAJIB dipanggil kalau ada reaksi emosi kuat atau momen yang pas secara visual "
+            "(kaget, ketawa, excited, kesel, salut, dll) — tidak perlu diminta user. "
+            "Setelah search_gif, di respons final tulis HANYA URL-nya saja "
+            "(contoh: https://static.klipy.com/ii/.../xxx.gif) — jangan pakai markdown image. "
+            "Boleh kirim URL GIF saja tanpa teks kalau itu lebih natural, "
+            "atau teks singkat lalu URL GIF di baris baru."
+        )
+
+        messages: list[dict] = [{"role": "system", "content": system_prompt}]
+        for msg in list(state.messages)[-6:]:
+            role = "assistant" if msg.is_bot else "user"
+            content = msg.content if msg.is_bot else f"{msg.author_name}: {msg.content}"
+            messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": f"{latest_author_name}: {latest_message}"})
+
+        tool_client = self._groq if self._groq else self._llm
+        for round_num in range(_MAX_TOOL_ROUNDS):
+            _, tool_calls = await tool_client.complete_with_tools(
+                messages=messages,
+                temperature=0.1,
+                max_tokens=200,
+                tools=TOOL_DEFINITIONS,
+                request_id=request_id,
+                request_label=f"generator:tools:r{round_num}",
+            )
+
+            if not tool_calls:
+                break
+
+            messages.append({
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": call.id,
+                        "type": "function",
+                        "function": {
+                            "name": call.function.name,
+                            "arguments": call.function.arguments,
+                        },
+                    }
+                    for call in tool_calls
+                ],
+            })
+
+            for call in tool_calls:
+                try:
+                    args = json.loads(call.function.arguments)
+                except (json.JSONDecodeError, ValueError):
+                    args = {}
+                result = await self._execute_tool(call.function.name, args, request_id)
+                LOGGER.info(
+                    "[request=%s] tool_executed name=%s result_chars=%s",
+                    request_id,
+                    call.function.name,
+                    len(result),
+                )
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": call.id,
+                    "content": result,
+                })
+
+        buffer = ""
+        chunk_count = 0
+        async for delta in self._llm.stream_complete(
+            messages=messages,
+            temperature=0.5,
+            max_tokens=500,
+            request_id=request_id,
+            request_label=f"generator:{strategy.value}:stream",
+        ):
+            buffer += delta
+            parts = _CHUNK_SPLIT_RE.split(buffer)
+            n_complete = (len(parts) - 1) // 2
+            for i in range(n_complete):
+                raw = (parts[2 * i] + parts[2 * i + 1]).strip()
+                chunk = self._normalize_chunk(raw)
+                if chunk and len(chunk) >= 3:
+                    chunk_count += 1
+                    yield chunk
+            buffer = parts[-1]
+
+        if buffer.strip():
+            chunk = self._normalize_chunk(buffer.strip())
+            if chunk:
+                chunk_count += 1
+                yield chunk
+
+        # Some reasoning models stream thinking tokens internally but emit zero delta.content
+        # (all tokens go to native_tokens_reasoning). Fall back to non-streaming complete().
+        if chunk_count == 0:
+            LOGGER.info(
+                "[request=%s] stream_empty_fallback=true strategy=%s",
+                request_id,
+                strategy.value,
+            )
+            final_text = await self._llm.complete(
+                messages=messages,
+                temperature=0.5,
+                max_tokens=500,
+                request_id=request_id,
+                request_label=f"generator:{strategy.value}:fallback",
+            )
+            fallback = self._normalize_response(final_text)
+            if fallback:
+                fallback_parts = _CHUNK_SPLIT_RE.split(fallback)
+                n_fb = (len(fallback_parts) - 1) // 2
+                for i in range(n_fb):
+                    raw = (fallback_parts[2 * i] + fallback_parts[2 * i + 1]).strip()
+                    chunk = self._normalize_chunk(raw)
+                    if chunk and len(chunk) >= 3:
+                        chunk_count += 1
+                        yield chunk
+                tail = self._normalize_chunk(fallback_parts[-1].strip())
+                if tail:
+                    chunk_count += 1
+                    yield tail
+
+        LOGGER.info(
+            "[request=%s] generator_stream_complete strategy=%s chunks=%s",
+            request_id,
+            strategy.value,
+            chunk_count,
+        )
 
     async def _execute_tool(self, name: str, args: dict, request_id: str | None) -> str:
         match name:
@@ -202,9 +377,18 @@ class SauceGenerator:
 
     def _normalize_response(self, text: str) -> str:
         cleaned = text.strip().strip('"')
+        cleaned = re.sub(r'!\[.*?\]\((https?://\S+)\)', r'\1', cleaned)
+        cleaned = re.sub(r'\*?\*?\[GIF\]\*?\*?\s*', '', cleaned).strip()
         if len(cleaned) <= self._max_response_chars:
             return cleaned
         return cleaned[: self._max_response_chars - 3].rstrip() + "..."
+
+    @staticmethod
+    def _normalize_chunk(text: str) -> str:
+        cleaned = text.strip().strip('"')
+        cleaned = re.sub(r'!\[.*?\]\((https?://\S+)\)', r'\1', cleaned)
+        cleaned = re.sub(r'\*?\*?\[GIF\]\*?\*?\s*', '', cleaned).strip()
+        return cleaned
 
     @classmethod
     def _is_fake_spouse_claim(cls, author_name: str, message: str) -> bool:

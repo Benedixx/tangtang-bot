@@ -149,65 +149,77 @@ class MucaSauceDiscordBot(discord.Client):
 
             addressee = message.author.display_name if trigger_type in _HARD_TRIGGERS else None
 
+            chunks: list[str] = []
+            sent_messages: list[discord.Message] = []
+
             try:
-                response = await self._generator.generate_response(
-                    strategy=strategy,
-                    trigger_type=trigger_type,
-                    state=state,
-                    latest_author_name=message.author.display_name,
-                    latest_message=content,
-                    addressee=addressee,
-                    request_id=request_id,
-                )
+                async with message.channel.typing():
+                    async for chunk in self._generator.generate_response_chunks(
+                        strategy=strategy,
+                        trigger_type=trigger_type,
+                        state=state,
+                        latest_author_name=message.author.display_name,
+                        latest_message=content,
+                        addressee=addressee,
+                        request_id=request_id,
+                    ):
+                        chunks.append(chunk)
+                        try:
+                            if not sent_messages and trigger_type in _HARD_TRIGGERS:
+                                sent_msg = await message.reply(chunk, mention_author=False)
+                            else:
+                                sent_msg = await message.channel.send(chunk)
+                            sent_messages.append(sent_msg)
+                        except discord.HTTPException:
+                            LOGGER.exception("[request=%s] chunk_send_failed", request_id)
             except Exception:
                 LOGGER.exception("[request=%s] generator_failed", request_id)
-                if trigger_type in _HARD_TRIGGERS:
+                if trigger_type in _HARD_TRIGGERS and not sent_messages:
                     await message.reply(
                         "I had a temporary issue while generating a response. Please try again.",
                         mention_author=False,
                     )
                 return
 
-            if not response:
+            if not sent_messages:
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
                 LOGGER.info("[request=%s] action=empty_response duration_ms=%s", request_id, elapsed_ms)
                 return
 
-            LOGGER.info(
-                "[request=%s] generated response_chars=%s preview=%s",
-                request_id,
-                len(response),
-                self._preview_text(response),
-            )
+            full_response = "\n".join(chunks)
+            first_sent = sent_messages[0]
 
-            sent = await self._send_response(message, response, trigger_type)
-            if sent is None:
-                LOGGER.info("[request=%s] action=send_failed", request_id)
-                return
+            LOGGER.info(
+                "[request=%s] generated chunks=%s response_chars=%s",
+                request_id,
+                len(chunks),
+                len(full_response),
+            )
 
             self._analyzer.add_message(
                 channel_id,
                 ChatMessage(
-                    message_id=sent.id,
+                    message_id=first_sent.id,
                     author_id=self.user.id,
                     author_name=self.user.display_name,
-                    content=response,
-                    created_at=sent.created_at,
+                    content=full_response,
+                    created_at=first_sent.created_at,
                     is_bot=True,
                 ),
             )
-            self._analyzer.mark_bot_message(channel_id, sent.id)
+            for sent_msg in sent_messages:
+                self._analyzer.mark_bot_message(channel_id, sent_msg.id)
 
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             LOGGER.info(
-                "[request=%s] action=respond sent_message_id=%s duration_ms=%s",
+                "[request=%s] action=respond sent_chunks=%s duration_ms=%s",
                 request_id,
-                sent.id,
+                len(sent_messages),
                 elapsed_ms,
             )
 
             if strategy == ConversationStrategy.INITIATIVE_SUMMARY:
-                self._analyzer.set_summary(channel_id, response)
+                self._analyzer.set_summary(channel_id, full_response)
                 LOGGER.info("[request=%s] summary_updated=true", request_id)
 
     async def _send_response(
@@ -312,6 +324,7 @@ def _build_bot(config: AppConfig) -> MucaSauceDiscordBot:
         web_scraper=web_scraper,
         gif_search=gif_search,
         max_response_chars=config.max_response_chars,
+        groq=groq_client,
     )
 
     return MucaSauceDiscordBot(

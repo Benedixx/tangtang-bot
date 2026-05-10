@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import AsyncGenerator
 from typing import Any, Sequence
 
 from openai import AsyncOpenAI
@@ -209,6 +210,77 @@ class OpenRouterClient:
             raise last_error
 
         raise RuntimeError("OpenRouter request failed without a specific exception.")
+
+    async def stream_complete(
+        self,
+        messages: Sequence[dict],
+        temperature: float = 0.5,
+        max_tokens: int = 500,
+        request_id: str | None = None,
+        request_label: str = "generic",
+    ) -> AsyncGenerator[str, None]:
+        headers: dict[str, str] = {}
+        if self._site_url:
+            headers["HTTP-Referer"] = self._site_url
+        if self._site_name:
+            headers["X-Title"] = self._site_name
+
+        client_index = self._next_client_index % len(self._clients)
+        self._next_client_index = (self._next_client_index + 1) % len(self._clients)
+        client = self._clients[client_index]
+
+        started = time.perf_counter()
+        LOGGER.info(
+            "[request=%s] openrouter_stream_start label=%s model=%s temperature=%.2f max_tokens=%s key_slot=%s",
+            request_id,
+            request_label,
+            self._model_name,
+            temperature,
+            max_tokens,
+            client_index + 1,
+        )
+
+        stream = await client.chat.completions.create(
+            model=self._model_name,
+            messages=list(messages),
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=True,
+            extra_headers=headers or None,
+        )
+
+        total_chars = 0
+        deadline = started + 8.0  # bail out if no content arrives within 8 s
+        async for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta.content
+            if delta is not None and total_chars == 0:
+                LOGGER.debug(
+                    "[request=%s] stream_first_chunk repr=%r",
+                    request_id,
+                    delta[:80] if delta else delta,
+                )
+            if delta:
+                total_chars += len(delta)
+                yield delta
+            elif total_chars == 0 and time.perf_counter() > deadline:
+                LOGGER.warning(
+                    "[request=%s] stream_no_content_timeout label=%s elapsed_ms=%s",
+                    request_id,
+                    request_label,
+                    int((time.perf_counter() - started) * 1000),
+                )
+                break
+
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        LOGGER.info(
+            "[request=%s] openrouter_stream_complete label=%s duration_ms=%s total_chars=%s",
+            request_id,
+            request_label,
+            elapsed_ms,
+            total_chars,
+        )
 
     def _next_attempt_order(self) -> list[int]:
         count = len(self._clients)

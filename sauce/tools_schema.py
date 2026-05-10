@@ -46,11 +46,13 @@ TOOL_DEFINITIONS: list[dict] = [
         "function": {
             "name": "search_gif",
             "description": (
-                "Cari dan kirim GIF animasi ke Discord. "
+                "Kirim GIF animasi sebagai ekspresi visual Tangtang. "
+                "KAPAN menggunakan: saat kamu (Tangtang) punya reaksi emosi yang kuat atau situasi butuh ekspresi visual — "
+                "kaget, ketawa, excited, kesel, bete, kagum, malu, salut, dll. "
+                "Tidak perlu diminta user — panggil sendiri kalau momen pas. "
+                "Respons boleh hanya URL GIF saja tanpa teks, atau teks singkat + URL GIF. "
                 "Query HARUS dimulai dengan 'robin hsr' atau 'soundoriented', "
-                "diikuti ekspresi/aksi yang sesuai konteks percakapan. "
-                "Contoh: 'robin hsr shocked', 'soundoriented smiling', 'robin hsr dancing'. "
-                "GIF yang dipilih akan auto-embed di Discord."
+                "diikuti ekspresi: shocked, laughing, happy, sad, angry, excited, blushing, dancing, clapping, dll."
             ),
             "parameters": {
                 "type": "object",
@@ -59,7 +61,7 @@ TOOL_DEFINITIONS: list[dict] = [
                         "type": "string",
                         "description": (
                             "Query GIF, diawali 'robin hsr' atau 'soundoriented' "
-                            "+ ekspresi (shocked, smiling, sad, angry, happy, dancing, blushing, dll)"
+                            "+ ekspresi (shocked, laughing, happy, sad, angry, excited, blushing, dancing, dll)"
                         ),
                     }
                 },

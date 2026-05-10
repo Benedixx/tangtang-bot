@@ -26,7 +26,7 @@ class AppConfig:
     web_search_max_results: int = 4
     web_search_min_interval_seconds: int = 20
     groq_api_key: str = ""
-    groq_model: str = "compound-beta"
+    groq_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
     klipy_api_key: str = ""
 
 
@@ -140,6 +140,6 @@ def load_config() -> AppConfig:
         web_search_max_results=_read_int("WEB_SEARCH_MAX_RESULTS", 4),
         web_search_min_interval_seconds=_read_int("WEB_SEARCH_MIN_INTERVAL_SECONDS", 20),
         groq_api_key=os.getenv("GROQ_API_KEY", ""),
-        groq_model=os.getenv("GROQ_MODEL", "compound-beta"),
+        groq_model=os.getenv("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct"),
         klipy_api_key=os.getenv("KLIPY_API_KEY", ""),
     )
