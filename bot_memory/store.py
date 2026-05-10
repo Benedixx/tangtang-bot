@@ -63,6 +63,77 @@ class TangtangMemoryStore:
 
         return added
 
+    def upsert_fact(self, new_fact: str) -> str:
+        new_fact = new_fact.strip()
+        if not new_fact:
+            return "ignored: empty fact"
+
+        facts = self._get_global_facts()
+        new_tokens = {t for t in re.findall(r"[a-zA-Z0-9À-ž]+", new_fact.lower()) if len(t) >= 3}
+
+        best_idx: int | None = None
+        best_overlap = 0.0
+        for i, existing in enumerate(facts):
+            if _is_protected(existing):
+                continue
+            existing_tokens = {t for t in re.findall(r"[a-zA-Z0-9À-ž]+", existing.lower()) if len(t) >= 3}
+            if not existing_tokens:
+                continue
+            intersection = len(new_tokens & existing_tokens)
+            overlap = intersection / len(existing_tokens | new_tokens)
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_idx = i
+
+        if best_idx is not None and best_overlap >= 0.5:
+            old_fact = facts[best_idx]
+            facts[best_idx] = new_fact
+            self._data["global_facts"] = facts
+            _update_meta_timestamp(self._data)
+            self._save()
+            LOGGER.info("memory_upsert action=updated old=%s new=%s", old_fact[:60], new_fact[:60])
+            return f"updated: {old_fact}"
+
+        facts.append(new_fact)
+        if len(facts) > _MAX_GLOBAL_FACTS:
+            protected = [f for f in facts if _is_protected(f)]
+            others = [f for f in facts if not _is_protected(f)]
+            facts = protected + others[: _MAX_GLOBAL_FACTS - len(protected)]
+
+        self._data["global_facts"] = facts
+        _update_meta_timestamp(self._data)
+        self._save()
+        LOGGER.info("memory_upsert action=inserted fact=%s", new_fact[:60])
+        return "inserted"
+
+    def delete_facts(self, pattern: str) -> int:
+        pattern = pattern.strip()
+        if not pattern:
+            return 0
+
+        pattern_tokens = {t.lower() for t in re.findall(r"[a-zA-Z0-9À-ž]+", pattern) if len(t) >= 3}
+        facts = self._get_global_facts()
+        remaining: list[str] = []
+        deleted = 0
+
+        for fact in facts:
+            if _is_protected(fact):
+                remaining.append(fact)
+                continue
+            fact_lower = fact.lower()
+            if any(token in fact_lower for token in pattern_tokens):
+                LOGGER.info("memory_delete removed fact=%s", fact[:60])
+                deleted += 1
+            else:
+                remaining.append(fact)
+
+        if deleted:
+            self._data["global_facts"] = remaining
+            _update_meta_timestamp(self._data)
+            self._save()
+
+        return deleted
+
     def build_context(self, latest_message: str = "", max_facts: int = 10) -> str:
         facts = self._get_global_facts()
         if not facts:

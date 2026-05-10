@@ -25,6 +25,9 @@ class AppConfig:
     web_search_enabled: bool = True
     web_search_max_results: int = 4
     web_search_min_interval_seconds: int = 20
+    groq_api_key: str = ""
+    groq_model: str = "compound-beta"
+    klipy_api_key: str = ""
 
 
 def _require(name: str, value: str | None) -> str:
@@ -136,4 +139,7 @@ def load_config() -> AppConfig:
         web_search_enabled=_read_bool("WEB_SEARCH_ENABLED", True),
         web_search_max_results=_read_int("WEB_SEARCH_MAX_RESULTS", 4),
         web_search_min_interval_seconds=_read_int("WEB_SEARCH_MIN_INTERVAL_SECONDS", 20),
+        groq_api_key=os.getenv("GROQ_API_KEY", ""),
+        groq_model=os.getenv("GROQ_MODEL", "compound-beta"),
+        klipy_api_key=os.getenv("KLIPY_API_KEY", ""),
     )

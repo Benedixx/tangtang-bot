@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import logging
 
-from llm import OpenRouterClient
+from llm import GroqClient, OpenRouterClient
 from models import ChannelState, ConversationStrategy, TriggerType
 
 
@@ -17,8 +17,14 @@ LOGGER = logging.getLogger("discord-bot.scheduler")
 
 
 class SauceScheduler:
-    def __init__(self, llm: OpenRouterClient, cooldown_seconds: int = 12) -> None:
+    def __init__(
+        self,
+        llm: OpenRouterClient,
+        cooldown_seconds: int = 12,
+        groq: GroqClient | None = None,
+    ) -> None:
         self._llm = llm
+        self._groq = groq
         self._cooldown_seconds = cooldown_seconds
 
     async def should_engage(
@@ -70,16 +76,27 @@ class SauceScheduler:
             "Apakah asisten perlu berbicara sekarang?"
         )
 
-        raw_decision = await self._llm.complete(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.0,
-            max_tokens=60,
-            request_id=request_id,
-            request_label="scheduler",
-        )
+        decision_messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        if self._groq is not None:
+            raw_decision = await self._groq.complete(
+                messages=decision_messages,
+                temperature=0.0,
+                max_tokens=30,
+                request_id=request_id,
+                request_label="scheduler",
+            )
+        else:
+            raw_decision = await self._llm.complete(
+                messages=decision_messages,
+                temperature=0.0,
+                max_tokens=60,
+                request_id=request_id,
+                request_label="scheduler",
+            )
 
         decision = raw_decision.strip()
         upper = decision.upper()

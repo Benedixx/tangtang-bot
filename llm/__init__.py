@@ -1,3 +1,4 @@
+from .groq import GroqClient
 from .openrouter import OpenRouterClient
 
-__all__ = ["OpenRouterClient"]
+__all__ = ["GroqClient", "OpenRouterClient"]

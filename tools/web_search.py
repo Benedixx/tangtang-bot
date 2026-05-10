@@ -24,6 +24,42 @@ class AdaptiveWebSearchTool:
         self._cache: dict[str, tuple[str, datetime]] = {}
         self._last_search_at: datetime | None = None
 
+    async def search(
+        self,
+        query: str,
+        request_id: str | None = None,
+    ) -> str:
+        """Direct search with an LLM-crafted query. Returns formatted results string."""
+        if not self._enabled:
+            return "Web search is disabled."
+
+        query = query.strip()
+        if not query:
+            return "Empty query."
+
+        cache_hit = self._cache.get(query)
+        if cache_hit is not None:
+            cached_context, cached_at = cache_hit
+            age_seconds = int((self._now() - cached_at).total_seconds())
+            if age_seconds <= 900:
+                LOGGER.info("[request=%s] webtool_cache_hit query=%s age_seconds=%s", request_id, query, age_seconds)
+                return cached_context
+
+        if self._is_rate_limited():
+            return "Rate limited — search skipped."
+
+        LOGGER.info("[request=%s] webtool_search_start query=%s", request_id, query)
+        results = await asyncio.to_thread(self._search_sync, query[:220])
+        self._last_search_at = self._now()
+
+        if not results:
+            return "No results found."
+
+        context = self._format_results(results)
+        self._cache[query] = (context, self._now())
+        LOGGER.info("[request=%s] webtool_search_done query=%s result_count=%s", request_id, query, len(results))
+        return context
+
     async def maybe_search(
         self,
         *,

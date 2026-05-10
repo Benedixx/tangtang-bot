@@ -9,11 +9,11 @@ import discord
 
 from bot_memory import TangtangMemoryStore
 from config import AppConfig, load_config
-from llm import OpenRouterClient
+from llm import GroqClient, OpenRouterClient
 from muca import DialogAnalyzer, StrategyArbitrator
 from models import ChatMessage, ConversationStrategy, TriggerType
 from sauce import SauceGenerator, SauceScheduler
-from tools import AdaptiveWebSearchTool
+from tools import AdaptiveWebSearchTool, GifSearchTool, WebScraperTool
 
 LOGGER = logging.getLogger("discord-bot")
 _MAX_LOG_PREVIEW_CHARS = 180
@@ -296,15 +296,21 @@ def _build_bot(config: AppConfig) -> MucaSauceDiscordBot:
         max_results=config.web_search_max_results,
         min_interval_seconds=config.web_search_min_interval_seconds,
     )
+    web_scraper = WebScraperTool()
+    gif_search = GifSearchTool(api_key=config.klipy_api_key)
+
+    groq_client = GroqClient(api_key=config.groq_api_key, model=config.groq_model) if config.groq_api_key else None
 
     analyzer = DialogAnalyzer(max_context_messages=config.max_context_messages)
     arbitrator = StrategyArbitrator(summary_interval_messages=config.summary_interval_messages)
-    scheduler = SauceScheduler(llm=llm_client, cooldown_seconds=config.response_cooldown_seconds)
+    scheduler = SauceScheduler(llm=llm_client, cooldown_seconds=config.response_cooldown_seconds, groq=groq_client)
     generator = SauceGenerator(
         llm=llm_client,
         bot_name=config.bot_name,
         memory_store=memory_store,
         web_search_tool=web_search_tool,
+        web_scraper=web_scraper,
+        gif_search=gif_search,
         max_response_chars=config.max_response_chars,
     )
 

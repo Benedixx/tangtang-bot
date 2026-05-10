@@ -5,6 +5,7 @@ import time
 from typing import Any, Sequence
 
 from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletionMessageToolCall
 
 LOGGER = logging.getLogger("discord-bot.openrouter")
 
@@ -112,6 +113,97 @@ class OpenRouterClient:
             )
 
             return text
+
+        if last_error is not None:
+            raise last_error
+
+        raise RuntimeError("OpenRouter request failed without a specific exception.")
+
+    async def complete_with_tools(
+        self,
+        messages: list[dict],
+        temperature: float = 0.5,
+        max_tokens: int = 300,
+        tools: list[dict] | None = None,
+        request_id: str | None = None,
+        request_label: str = "generic",
+    ) -> tuple[str | None, list[ChatCompletionMessageToolCall] | None]:
+        """Returns (text, None) for final answer or (None, tool_calls) when LLM invokes tools."""
+        headers: dict[str, str] = {}
+        if self._site_url:
+            headers["HTTP-Referer"] = self._site_url
+        if self._site_name:
+            headers["X-Title"] = self._site_name
+
+        started = time.perf_counter()
+        LOGGER.info(
+            "[request=%s] openrouter_start label=%s model=%s temperature=%.2f max_tokens=%s prompt_messages=%s tools=%s",
+            request_id,
+            request_label,
+            self._model_name,
+            temperature,
+            max_tokens,
+            len(messages),
+            len(tools) if tools else 0,
+        )
+
+        attempt_order = self._next_attempt_order()
+        last_error: Exception | None = None
+
+        for attempt_number, client_index in enumerate(attempt_order, start=1):
+            client = self._clients[client_index]
+            try:
+                kwargs: dict[str, Any] = dict(
+                    model=self._model_name,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    extra_headers=headers or None,
+                )
+                if tools:
+                    kwargs["tools"] = tools
+                response = await client.chat.completions.create(**kwargs)
+            except Exception as exc:
+                last_error = exc
+                elapsed_ms = int((time.perf_counter() - started) * 1000)
+                LOGGER.exception(
+                    "[request=%s] openrouter_error label=%s duration_ms=%s key_slot=%s attempt=%s",
+                    request_id,
+                    request_label,
+                    elapsed_ms,
+                    client_index + 1,
+                    attempt_number,
+                )
+                continue
+
+            if not response.choices:
+                return "", None
+
+            message = response.choices[0].message
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+
+            if message.tool_calls:
+                LOGGER.info(
+                    "[request=%s] openrouter_tool_calls label=%s duration_ms=%s tool_count=%s key_slot=%s",
+                    request_id,
+                    request_label,
+                    elapsed_ms,
+                    len(message.tool_calls),
+                    client_index + 1,
+                )
+                return None, list(message.tool_calls)
+
+            text = self._extract_text(message.content).strip()
+            LOGGER.info(
+                "[request=%s] openrouter_complete label=%s duration_ms=%s response_chars=%s key_slot=%s attempt=%s",
+                request_id,
+                request_label,
+                elapsed_ms,
+                len(text),
+                client_index + 1,
+                attempt_number,
+            )
+            return text, None
 
         if last_error is not None:
             raise last_error
