@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 import re
 import time
 
 import discord
+import requests
 
 from bot_memory import TangtangMemoryStore
 from config import AppConfig, load_config
@@ -23,6 +25,19 @@ _HARD_TRIGGERS = {
     TriggerType.REPLY_TO_BOT,
     TriggerType.NAME_MENTION,
 }
+
+_GIF_URL_RE = re.compile(r'^https?://\S+\.gif$', re.IGNORECASE)
+
+
+async def _fetch_gif_bytes(url: str) -> bytes | None:
+    try:
+        data = await asyncio.to_thread(
+            lambda: requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"}).content
+        )
+        return data if data else None
+    except Exception:
+        LOGGER.exception("Failed to download GIF %s", url)
+        return None
 
 
 class MucaSauceDiscordBot(discord.Client):
@@ -165,11 +180,11 @@ class MucaSauceDiscordBot(discord.Client):
                     ):
                         chunks.append(chunk)
                         try:
-                            if not sent_messages and trigger_type in _HARD_TRIGGERS:
-                                sent_msg = await message.reply(chunk, mention_author=False)
-                            else:
-                                sent_msg = await message.channel.send(chunk)
-                            sent_messages.append(sent_msg)
+                            sent_msg = await self._send_chunk(
+                                message, chunk, trigger_type, not sent_messages
+                            )
+                            if sent_msg:
+                                sent_messages.append(sent_msg)
                         except discord.HTTPException:
                             LOGGER.exception("[request=%s] chunk_send_failed", request_id)
             except Exception:
@@ -196,17 +211,21 @@ class MucaSauceDiscordBot(discord.Client):
                 len(full_response),
             )
 
-            self._analyzer.add_message(
-                channel_id,
-                ChatMessage(
-                    message_id=first_sent.id,
-                    author_id=self.user.id,
-                    author_name=self.user.display_name,
-                    content=full_response,
-                    created_at=first_sent.created_at,
-                    is_bot=True,
-                ),
-            )
+            # GIF-only reactions are not conversational content — storing them
+            # causes the tool loop to pattern-match and skip calling search_gif.
+            is_gif_only = len(chunks) == 1 and _GIF_URL_RE.match(full_response.strip())
+            if not is_gif_only:
+                self._analyzer.add_message(
+                    channel_id,
+                    ChatMessage(
+                        message_id=first_sent.id,
+                        author_id=self.user.id,
+                        author_name=self.user.display_name,
+                        content=full_response,
+                        created_at=first_sent.created_at,
+                        is_bot=True,
+                    ),
+                )
             for sent_msg in sent_messages:
                 self._analyzer.mark_bot_message(channel_id, sent_msg.id)
 
@@ -236,6 +255,26 @@ class MucaSauceDiscordBot(discord.Client):
         except discord.HTTPException:
             LOGGER.exception("Failed to send response")
             return None
+
+    async def _send_chunk(
+        self,
+        message: discord.Message,
+        chunk: str,
+        trigger_type: TriggerType,
+        is_first: bool,
+    ) -> discord.Message | None:
+        stripped = chunk.strip()
+        if _GIF_URL_RE.match(stripped):
+            gif_bytes = await _fetch_gif_bytes(stripped)
+            if gif_bytes:
+                file = discord.File(io.BytesIO(gif_bytes), filename="reaction.gif")
+                if is_first and trigger_type in _HARD_TRIGGERS:
+                    return await message.reply(file=file, mention_author=False)
+                return await message.channel.send(file=file)
+            LOGGER.warning("GIF download failed, sending bare URL: %s", stripped)
+        if is_first and trigger_type in _HARD_TRIGGERS:
+            return await message.reply(stripped, mention_author=False)
+        return await message.channel.send(stripped)
 
     @staticmethod
     def _preview_text(content: str) -> str:

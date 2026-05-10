@@ -49,6 +49,7 @@ TOOL_DEFINITIONS: list[dict] = [
                 "Kirim GIF animasi sebagai ekspresi visual Tangtang. "
                 "KAPAN menggunakan: saat kamu (Tangtang) punya reaksi emosi yang kuat atau situasi butuh ekspresi visual — "
                 "kaget, ketawa, excited, kesel, bete, kagum, malu, salut, dll. "
+                "kalau user minta GIF secara eksplisit, itu pertanda kamu harus banget kirim GIF. "
                 "Tidak perlu diminta user — panggil sendiri kalau momen pas. "
                 "Respons boleh hanya URL GIF saja tanpa teks, atau teks singkat + URL GIF. "
                 "Query HARUS dimulai dengan 'robin hsr' atau 'soundoriented', "
