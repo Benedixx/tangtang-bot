@@ -242,6 +242,7 @@ class SauceGenerator:
             messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": f"{latest_author_name}: {latest_message}"})
 
+        gif_url: str | None = None
         tool_client = self._groq if self._groq else self._llm
         for round_num in range(_MAX_TOOL_ROUNDS):
             _, tool_calls = await tool_client.complete_with_tools(
@@ -284,11 +285,18 @@ class SauceGenerator:
                     call.function.name,
                     len(result),
                 )
+                if call.function.name == "search_gif" and gif_url is None:
+                    gif_url = self._extract_gif_url(result)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": call.id,
                     "content": result,
                 })
+
+        if gif_url:
+            LOGGER.info("[request=%s] gif_direct url=%s", request_id, gif_url)
+            yield gif_url
+            return
 
         buffer = ""
         chunk_count = 0
@@ -382,6 +390,11 @@ class SauceGenerator:
         if len(cleaned) <= self._max_response_chars:
             return cleaned
         return cleaned[: self._max_response_chars - 3].rstrip() + "..."
+
+    @staticmethod
+    def _extract_gif_url(result: str) -> str | None:
+        m = re.search(r'URL:\s*(https?://\S+\.gif)', result)
+        return m.group(1) if m else None
 
     @staticmethod
     def _normalize_chunk(text: str) -> str:
