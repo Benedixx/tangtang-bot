@@ -12,7 +12,7 @@ from config import AppConfig, load_config
 from llm import GroqClient, OpenRouterClient
 from models import ChatMessage, ConversationStrategy, TriggerType
 from muca import DialogAnalyzer, StrategyArbitrator
-from sauce import SauceGenerator, SauceScheduler
+from sauce import PromptGuardrail, SauceGenerator, SauceScheduler
 from tools import AdaptiveWebSearchTool, GifSearchTool, WebScraperTool
 
 LOGGER = logging.getLogger("discord-bot")
@@ -36,6 +36,7 @@ class MucaSauceDiscordBot(discord.Client):
         arbitrator: StrategyArbitrator,
         scheduler: SauceScheduler,
         generator: SauceGenerator,
+        guardrail: PromptGuardrail,
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)
@@ -44,6 +45,7 @@ class MucaSauceDiscordBot(discord.Client):
         self._arbitrator = arbitrator
         self._scheduler = scheduler
         self._generator = generator
+        self._guardrail = guardrail
         self._channel_locks: dict[int, asyncio.Lock] = {}
 
         name_candidates = [self._config.bot_name, *self._config.bot_name_aliases]
@@ -100,6 +102,18 @@ class MucaSauceDiscordBot(discord.Client):
             trigger_type = await self._detect_trigger_type(message, state, content)
 
             LOGGER.info("[request=%s] trigger=%s", request_id, trigger_type.value)
+
+            is_attack, rejection = await self._guardrail.check(content, request_id)
+            if is_attack:
+                LOGGER.warning(
+                    "[request=%s] action=injection_blocked author=%s(%s)",
+                    request_id,
+                    message.author.display_name,
+                    message.author.id,
+                )
+                if trigger_type in _HARD_TRIGGERS and rejection:
+                    await message.reply(rejection, mention_author=False)
+                return
 
             self._analyzer.add_message(
                 channel_id,
@@ -383,6 +397,7 @@ def _build_bot(config: AppConfig) -> MucaSauceDiscordBot:
         arbitrator=arbitrator,
         scheduler=scheduler,
         generator=generator,
+        guardrail=PromptGuardrail(groq=groq_client),
         intents=intents,
     )
 
