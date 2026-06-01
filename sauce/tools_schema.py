@@ -46,12 +46,9 @@ TOOL_DEFINITIONS: list[dict] = [
         "function": {
             "name": "search_gif",
             "description": (
-                "Kirim GIF animasi sebagai ekspresi visual Tangtang. "
-                "KAPAN menggunakan: saat kamu (Tangtang) punya reaksi emosi yang kuat atau situasi butuh ekspresi visual — "
-                "kaget, ketawa, excited, kesel, bete, kagum, malu, salut, dll. "
-                "kalau user minta GIF secara eksplisit, itu pertanda kamu harus banget kirim GIF. "
-                "Tidak perlu diminta user — panggil sendiri kalau momen pas. "
-                "Respons boleh hanya URL GIF saja tanpa teks, atau teks singkat + URL GIF. "
+                "Cari GIF untuk dikirim sebagai ekspresi spontan, kayak orang kirim GIF di chat. "
+                "Pakai sesekali kalau momen beneran pas — reaksi kuat, situasi lucu, absurd, atau dramatis. "
+                "Jangan dipaksakan. Kalau user minta GIF, wajib panggil ini. "
                 "Query HARUS dimulai dengan 'robin hsr' atau 'soundoriented', "
                 "diikuti ekspresi: shocked, laughing, happy, sad, angry, excited, blushing, dancing, clapping, dll."
             ),

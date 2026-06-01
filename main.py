@@ -1,19 +1,17 @@
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
 import re
 import time
 
 import discord
-import requests
 
 from bot_memory import TangtangMemoryStore
 from config import AppConfig, load_config
 from llm import GroqClient, OpenRouterClient
-from muca import DialogAnalyzer, StrategyArbitrator
 from models import ChatMessage, ConversationStrategy, TriggerType
+from muca import DialogAnalyzer, StrategyArbitrator
 from sauce import SauceGenerator, SauceScheduler
 from tools import AdaptiveWebSearchTool, GifSearchTool, WebScraperTool
 
@@ -26,18 +24,7 @@ _HARD_TRIGGERS = {
     TriggerType.NAME_MENTION,
 }
 
-_GIF_URL_RE = re.compile(r'^https?://\S+\.gif$', re.IGNORECASE)
-
-
-async def _fetch_gif_bytes(url: str) -> bytes | None:
-    try:
-        data = await asyncio.to_thread(
-            lambda: requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"}).content
-        )
-        return data if data else None
-    except Exception:
-        LOGGER.exception("Failed to download GIF %s", url)
-        return None
+_GIF_URL_RE = re.compile(r"^https?://\S+\.gif$", re.IGNORECASE)
 
 
 class MucaSauceDiscordBot(discord.Client):
@@ -73,7 +60,9 @@ class MucaSauceDiscordBot(discord.Client):
             normalized_seen.add(lowered)
 
             escaped = re.escape(cleaned)
-            self._bot_name_patterns.append(re.compile(rf"(^|\W){escaped}(\W|$)", re.IGNORECASE))
+            self._bot_name_patterns.append(
+                re.compile(rf"(^|\W){escaped}(\W|$)", re.IGNORECASE)
+            )
 
     async def on_ready(self) -> None:
         if self.user is not None:
@@ -137,7 +126,9 @@ class MucaSauceDiscordBot(discord.Client):
                 state=state,
                 latest_message=content,
             )
-            recent_history = self._analyzer.format_recent_history(state, limit=self._config.max_context_messages)
+            recent_history = self._analyzer.format_recent_history(
+                state, limit=self._config.max_context_messages
+            )
 
             LOGGER.info("[request=%s] strategy=%s", request_id, strategy.value)
 
@@ -159,10 +150,14 @@ class MucaSauceDiscordBot(discord.Client):
 
             if not should_engage:
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
-                LOGGER.info("[request=%s] action=skip duration_ms=%s", request_id, elapsed_ms)
+                LOGGER.info(
+                    "[request=%s] action=skip duration_ms=%s", request_id, elapsed_ms
+                )
                 return
 
-            addressee = message.author.display_name if trigger_type in _HARD_TRIGGERS else None
+            addressee = (
+                message.author.display_name if trigger_type in _HARD_TRIGGERS else None
+            )
 
             chunks: list[str] = []
             sent_messages: list[discord.Message] = []
@@ -186,7 +181,9 @@ class MucaSauceDiscordBot(discord.Client):
                             if sent_msg:
                                 sent_messages.append(sent_msg)
                         except discord.HTTPException:
-                            LOGGER.exception("[request=%s] chunk_send_failed", request_id)
+                            LOGGER.exception(
+                                "[request=%s] chunk_send_failed", request_id
+                            )
             except Exception:
                 LOGGER.exception("[request=%s] generator_failed", request_id)
                 if trigger_type in _HARD_TRIGGERS and not sent_messages:
@@ -198,7 +195,11 @@ class MucaSauceDiscordBot(discord.Client):
 
             if not sent_messages:
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
-                LOGGER.info("[request=%s] action=empty_response duration_ms=%s", request_id, elapsed_ms)
+                LOGGER.info(
+                    "[request=%s] action=empty_response duration_ms=%s",
+                    request_id,
+                    elapsed_ms,
+                )
                 return
 
             full_response = "\n".join(chunks)
@@ -265,13 +266,9 @@ class MucaSauceDiscordBot(discord.Client):
     ) -> discord.Message | None:
         stripped = chunk.strip()
         if _GIF_URL_RE.match(stripped):
-            gif_bytes = await _fetch_gif_bytes(stripped)
-            if gif_bytes:
-                file = discord.File(io.BytesIO(gif_bytes), filename="reaction.gif")
-                if is_first and trigger_type in _HARD_TRIGGERS:
-                    return await message.reply(file=file, mention_author=False)
-                return await message.channel.send(file=file)
-            LOGGER.warning("GIF download failed, sending bare URL: %s", stripped)
+            if is_first and trigger_type in _HARD_TRIGGERS:
+                return await message.reply(stripped, mention_author=False)
+            return await message.channel.send(stripped)
         if is_first and trigger_type in _HARD_TRIGGERS:
             return await message.reply(stripped, mention_author=False)
         return await message.channel.send(stripped)
@@ -325,7 +322,9 @@ class MucaSauceDiscordBot(discord.Client):
     def _is_name_mention(self, content: str) -> bool:
         if not self._bot_name_patterns:
             return False
-        return any(pattern.search(content) is not None for pattern in self._bot_name_patterns)
+        return any(
+            pattern.search(content) is not None for pattern in self._bot_name_patterns
+        )
 
 
 def _build_bot(config: AppConfig) -> MucaSauceDiscordBot:
@@ -341,7 +340,9 @@ def _build_bot(config: AppConfig) -> MucaSauceDiscordBot:
         site_url=config.openrouter_site_url,
     )
 
-    memory_store = TangtangMemoryStore(file_path=config.memory_file_path, llm=llm_client)
+    memory_store = TangtangMemoryStore(
+        file_path=config.memory_file_path, llm=llm_client
+    )
     web_search_tool = AdaptiveWebSearchTool(
         enabled=config.web_search_enabled,
         max_results=config.web_search_max_results,
@@ -350,11 +351,21 @@ def _build_bot(config: AppConfig) -> MucaSauceDiscordBot:
     web_scraper = WebScraperTool()
     gif_search = GifSearchTool(api_key=config.klipy_api_key)
 
-    groq_client = GroqClient(api_key=config.groq_api_key, model=config.groq_model) if config.groq_api_key else None
+    groq_client = (
+        GroqClient(api_key=config.groq_api_key, model=config.groq_model)
+        if config.groq_api_key
+        else None
+    )
 
     analyzer = DialogAnalyzer(max_context_messages=config.max_context_messages)
-    arbitrator = StrategyArbitrator(summary_interval_messages=config.summary_interval_messages)
-    scheduler = SauceScheduler(llm=llm_client, cooldown_seconds=config.response_cooldown_seconds, groq=groq_client)
+    arbitrator = StrategyArbitrator(
+        summary_interval_messages=config.summary_interval_messages
+    )
+    scheduler = SauceScheduler(
+        llm=llm_client,
+        cooldown_seconds=config.response_cooldown_seconds,
+        groq=groq_client,
+    )
     generator = SauceGenerator(
         llm=llm_client,
         bot_name=config.bot_name,

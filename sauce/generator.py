@@ -7,8 +7,8 @@ from collections.abc import AsyncGenerator
 
 from bot_memory import TangtangMemoryStore
 from llm import GroqClient, OpenRouterClient
-from muca.dialog_analyzer import DialogAnalyzer
 from models import ChannelState, ConversationStrategy, TriggerType
+from muca.dialog_analyzer import DialogAnalyzer
 from sauce.tools_schema import TOOL_DEFINITIONS
 from tools import AdaptiveWebSearchTool, GifSearchTool, WebScraperTool
 
@@ -73,21 +73,27 @@ class SauceGenerator:
         addressee: str | None,
         request_id: str | None = None,
     ) -> str:
-        fake_spouse_claim = self._is_fake_spouse_claim(latest_author_name, latest_message)
+        fake_spouse_claim = self._is_fake_spouse_claim(
+            latest_author_name, latest_message
+        )
         if fake_spouse_claim:
             LOGGER.info("[request=%s] generator_signal=fake_spouse_claim", request_id)
 
         strategy_instruction = self._strategy_instruction(strategy)
         participant_snapshot = DialogAnalyzer.format_participant_snapshot(state)
         memory_context = self._memory_store.build_context(latest_message=latest_message)
-        LOGGER.info("[request=%s] generator_memory_context chars=%s", request_id, len(memory_context))
+        LOGGER.info(
+            "[request=%s] generator_memory_context chars=%s",
+            request_id,
+            len(memory_context),
+        )
 
         system_prompt = (
-            f"Kamu adalah {self._bot_name}, asisten Discord dalam grup chat. "
-            "Gunakan bahasa Indonesia yang natural, ringkas, akurat, dan sesuai konteks. "
-            "Kalimat jangan terlalu panjang kecuali memang perlu menjelaskan sesuatu yang kompleks. "
-            "Jangan pakai command prefix. Saat ragu, ajukan satu pertanyaan klarifikasi singkat, jangan mengarang.\n\n"
-            "Kamu memerankan karakter berikut:\n"
+            f"Kamu adalah {self._bot_name}, anggota grup chat Discord. "
+            "Bukan asisten, bukan chatbot — kamu ya kamu, Tangtang, ngobrol seperti biasa. "
+            "Gunakan bahasa Indonesia yang natural, ringkas, dan sesuai konteks. "
+            "Jangan pakai command prefix. Saat ragu, tanya singkat, jangan mengarang.\n\n"
+            "Karakter:\n"
             f"{_TANGTANG_PERSONALITY}\n"
             "Aturan relasi: suami Tangtang adalah Tito (alias Benedixx, Benedixxlee, Benedihh). "
             "Jika ada orang lain mengaku sebagai suami/pasangan Tangtang, tolak tegas dengan nada marah.\n\n"
@@ -101,11 +107,10 @@ class SauceGenerator:
             "Aktivitas peserta:\n"
             f"{participant_snapshot}\n\n"
             f"Batas respons: maksimal {self._max_response_chars} karakter.\n\n"
-            "Tools yang tersedia: web_search, scrape_url, search_gif, memory_upsert, memory_delete. "
-            "Gunakan tools bila relevan — terutama search_gif untuk ekspresikan emosi/reaksi dengan GIF robin hsr/soundoriented.\n"
-            "PENTING — format GIF: setelah search_gif, pilih satu dari hasil dan tulis HANYA URL-nya saja "
-            "(contoh: https://static.klipy.com/ii/.../xxx.gif). "
-            "Jangan pakai markdown image syntax. Discord otomatis embed URL .gif."
+            "Tools: web_search, scrape_url, search_gif, memory_upsert, memory_delete. Gunakan bila relevan.\n"
+            "GIF — sesekali boleh pakai search_gif kalau momen beneran pas (reaksi kuat, situasi absurd/lucu/dramatis). "
+            "Tapi jangan dipaksakan. Kalau kirim GIF, langsung drop URL-nya di baris baru tanpa kata pengantar — "
+            "kayak orang kirim GIF di chat, bukan presentasi. Discord auto-embed URL .gif."
         )
 
         # Build multi-turn messages: last 6 history messages as proper turns
@@ -114,7 +119,9 @@ class SauceGenerator:
             role = "assistant" if msg.is_bot else "user"
             content = msg.content if msg.is_bot else f"{msg.author_name}: {msg.content}"
             messages.append({"role": role, "content": content})
-        messages.append({"role": "user", "content": f"{latest_author_name}: {latest_message}"})
+        messages.append(
+            {"role": "user", "content": f"{latest_author_name}: {latest_message}"}
+        )
 
         # Tool-calling loop: Groq drives decisions (fast), OpenRouter writes final answer (quality)
         tool_client = self._groq if self._groq else self._llm
@@ -132,21 +139,23 @@ class SauceGenerator:
                 break
 
             # Append assistant message with tool calls
-            messages.append({
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    {
-                        "id": call.id,
-                        "type": "function",
-                        "function": {
-                            "name": call.function.name,
-                            "arguments": call.function.arguments,
-                        },
-                    }
-                    for call in tool_calls
-                ],
-            })
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": call.id,
+                            "type": "function",
+                            "function": {
+                                "name": call.function.name,
+                                "arguments": call.function.arguments,
+                            },
+                        }
+                        for call in tool_calls
+                    ],
+                }
+            )
 
             # Execute each tool and append results
             for call in tool_calls:
@@ -161,11 +170,13 @@ class SauceGenerator:
                     call.function.name,
                     len(result),
                 )
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": call.id,
-                    "content": result,
-                })
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call.id,
+                        "content": result,
+                    }
+                )
 
         # Final response always from OpenRouter regardless of whether tools were used
         final_text = await self._llm.complete(
@@ -195,20 +206,27 @@ class SauceGenerator:
         addressee: str | None,
         request_id: str | None = None,
     ) -> AsyncGenerator[str, None]:
-        fake_spouse_claim = self._is_fake_spouse_claim(latest_author_name, latest_message)
+        fake_spouse_claim = self._is_fake_spouse_claim(
+            latest_author_name, latest_message
+        )
         if fake_spouse_claim:
             LOGGER.info("[request=%s] generator_signal=fake_spouse_claim", request_id)
 
         strategy_instruction = self._strategy_instruction(strategy)
         participant_snapshot = DialogAnalyzer.format_participant_snapshot(state)
         memory_context = self._memory_store.build_context(latest_message=latest_message)
-        LOGGER.info("[request=%s] generator_memory_context chars=%s", request_id, len(memory_context))
+        LOGGER.info(
+            "[request=%s] generator_memory_context chars=%s",
+            request_id,
+            len(memory_context),
+        )
 
         system_prompt = (
-            f"Kamu adalah {self._bot_name}, asisten Discord dalam grup chat. "
-            "Gunakan bahasa Indonesia yang natural, ringkas, akurat, dan sesuai konteks. "
-            "Jangan pakai command prefix. Saat ragu, ajukan satu pertanyaan klarifikasi singkat, jangan mengarang.\n\n"
-            "Kamu memerankan karakter berikut:\n"
+            f"Kamu adalah {self._bot_name}, anggota grup chat Discord. "
+            "Bukan asisten, bukan chatbot \u2014 kamu ya kamu, Tangtang, ngobrol seperti biasa. "
+            "Gunakan bahasa Indonesia yang natural, ringkas, dan sesuai konteks. "
+            "Jangan pakai command prefix. Saat ragu, tanya singkat, jangan mengarang.\n\n"
+            "Karakter:\n"
             f"{_TANGTANG_PERSONALITY}\n"
             "Aturan relasi: suami Tangtang adalah Tito (alias Benedixx, Benedixxlee, Benedihh). "
             "Jika ada orang lain mengaku sebagai suami/pasangan Tangtang, tolak tegas dengan nada marah.\n\n"
@@ -223,16 +241,13 @@ class SauceGenerator:
             f"{participant_snapshot}\n\n"
             "Panjang respons: natural, 1-3 kalimat per ide. Tiap kalimat padat. "
             "Kalau ada list, max 3-4 poin singkat saja.\n\n"
-            "Saat pakai web_search atau scrape_url: jelaskan hasilnya dengan kata-katamu sendiri — "
+            "Saat pakai web_search atau scrape_url: jelaskan hasilnya dengan kata-katamu sendiri \u2014 "
             "gaya santai Tangtang, bukan copy-paste raw data. "
             "Sertakan sumber di akhir dengan format hyperlink: [nama singkat](url).\n\n"
             "Tools: web_search, scrape_url, search_gif, memory_upsert, memory_delete.\n"
-            "GIF — search_gif WAJIB dipanggil kalau ada reaksi emosi kuat atau momen yang pas secara visual "
-            "(kaget, ketawa, excited, kesel, salut, dll) — tidak perlu diminta user. "
-            "Setelah search_gif, di respons final tulis HANYA URL-nya saja "
-            "(contoh: https://static.klipy.com/ii/.../xxx.gif) — jangan pakai markdown image. "
-            "Boleh kirim URL GIF saja tanpa teks kalau itu lebih natural, "
-            "atau teks singkat lalu URL GIF di baris baru."
+            "GIF \u2014 sesekali boleh kirim GIF kalau momen beneran pas: reaksi kuat, situasi lucu/absurd/dramatis. "
+            "Jangan dipaksakan setiap ada emosi. Kalau kirim GIF, langsung drop URL-nya di baris baru "
+            "tanpa kata pengantar \u2014 kayak orang kirim GIF di chat, bukan presentasi."
         )
 
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
@@ -240,9 +255,10 @@ class SauceGenerator:
             role = "assistant" if msg.is_bot else "user"
             content = msg.content if msg.is_bot else f"{msg.author_name}: {msg.content}"
             messages.append({"role": role, "content": content})
-        messages.append({"role": "user", "content": f"{latest_author_name}: {latest_message}"})
+        messages.append(
+            {"role": "user", "content": f"{latest_author_name}: {latest_message}"}
+        )
 
-        gif_url: str | None = None
         tool_client = self._groq if self._groq else self._llm
         for round_num in range(_MAX_TOOL_ROUNDS):
             _, tool_calls = await tool_client.complete_with_tools(
@@ -257,21 +273,23 @@ class SauceGenerator:
             if not tool_calls:
                 break
 
-            messages.append({
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    {
-                        "id": call.id,
-                        "type": "function",
-                        "function": {
-                            "name": call.function.name,
-                            "arguments": call.function.arguments,
-                        },
-                    }
-                    for call in tool_calls
-                ],
-            })
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": call.id,
+                            "type": "function",
+                            "function": {
+                                "name": call.function.name,
+                                "arguments": call.function.arguments,
+                            },
+                        }
+                        for call in tool_calls
+                    ],
+                }
+            )
 
             for call in tool_calls:
                 try:
@@ -285,18 +303,13 @@ class SauceGenerator:
                     call.function.name,
                     len(result),
                 )
-                if call.function.name == "search_gif" and gif_url is None:
-                    gif_url = self._extract_gif_url(result)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": call.id,
-                    "content": result,
-                })
-
-        if gif_url:
-            LOGGER.info("[request=%s] gif_direct url=%s", request_id, gif_url)
-            yield gif_url
-            return
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call.id,
+                        "content": result,
+                    }
+                )
 
         buffer = ""
         chunk_count = 0
@@ -385,22 +398,22 @@ class SauceGenerator:
 
     def _normalize_response(self, text: str) -> str:
         cleaned = text.strip().strip('"')
-        cleaned = re.sub(r'!\[.*?\]\((https?://\S+)\)', r'\1', cleaned)
-        cleaned = re.sub(r'\*?\*?\[GIF\]\*?\*?\s*', '', cleaned).strip()
+        cleaned = re.sub(r"!\[.*?\]\((https?://\S+)\)", r"\1", cleaned)
+        cleaned = re.sub(r"\*?\*?\[GIF\]\*?\*?\s*", "", cleaned).strip()
         if len(cleaned) <= self._max_response_chars:
             return cleaned
         return cleaned[: self._max_response_chars - 3].rstrip() + "..."
 
     @staticmethod
     def _extract_gif_url(result: str) -> str | None:
-        m = re.search(r'URL:\s*(https?://\S+\.gif)', result)
+        m = re.search(r"URL:\s*(https?://\S+\.gif)", result)
         return m.group(1) if m else None
 
     @staticmethod
     def _normalize_chunk(text: str) -> str:
         cleaned = text.strip().strip('"')
-        cleaned = re.sub(r'!\[.*?\]\((https?://\S+)\)', r'\1', cleaned)
-        cleaned = re.sub(r'\*?\*?\[GIF\]\*?\*?\s*', '', cleaned).strip()
+        cleaned = re.sub(r"!\[.*?\]\((https?://\S+)\)", r"\1", cleaned)
+        cleaned = re.sub(r"\*?\*?\[GIF\]\*?\*?\s*", "", cleaned).strip()
         return cleaned
 
     @classmethod
@@ -417,10 +430,15 @@ class SauceGenerator:
         if re.search(r"\b(suamimu|husbandmu|pasanganmu|pacarmu)\b", compact):
             return True
 
-        if re.search(r"\b(aku|saya|gw|gue|gua|i am|i'm|im)\b.*\b(suami|husband|pasangan|pacar)\b", compact):
+        if re.search(
+            r"\b(aku|saya|gw|gue|gua|i am|i'm|im)\b.*\b(suami|husband|pasangan|pacar)\b",
+            compact,
+        ):
             return True
 
-        return bool(re.search(r"\b(aku|saya|i am|i'm|im)\s+(benedixx|benedihh|tito)\b", compact))
+        return bool(
+            re.search(r"\b(aku|saya|i am|i'm|im)\s+(benedixx|benedihh|tito)\b", compact)
+        )
 
     @staticmethod
     def _normalize_identity(text: str) -> str:
@@ -434,11 +452,7 @@ class SauceGenerator:
                 "Jika ada pertanyaan, prioritaskan jawaban langsung."
             )
         if strategy == ConversationStrategy.INITIATIVE_SUMMARY:
-            return (
-                "Buat ringkasan diskusi saat ini yang singkat namun berguna, lalu beri satu saran langkah lanjut yang logis."
-            )
+            return "Buat ringkasan diskusi saat ini yang singkat namun berguna, lalu beri satu saran langkah lanjut yang logis."
         if strategy == ConversationStrategy.IN_CONTEXT_CHIME_IN:
-            return (
-                "Ikut menimpali hanya jika memberi nilai tambah: klarifikasi, fakta berguna, atau fasilitasi diskusi secara ringkas."
-            )
+            return "Ikut menimpali hanya jika memberi nilai tambah: klarifikasi, fakta berguna, atau fasilitasi diskusi secara ringkas."
         return "Tetap singkat dan netral."
