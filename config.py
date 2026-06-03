@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
@@ -28,6 +28,7 @@ class AppConfig:
     groq_api_key: str = ""
     groq_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
     klipy_api_key: str = ""
+    trap_channel_ids: tuple[int, ...] = ()
 
 
 def _require(name: str, value: str | None) -> str:
@@ -97,6 +98,26 @@ def _collect_openrouter_keys() -> tuple[str, ...]:
     return tuple(deduped)
 
 
+def _read_int_csv(name: str) -> tuple[int, ...]:
+    """Read a comma-separated list of integers from an env var. Missing/empty → empty tuple."""
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return ()
+
+    result: list[int] = []
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        try:
+            result.append(int(chunk))
+        except ValueError as exc:
+            raise ValueError(
+                f"Environment variable {name} must be comma-separated integers, got {chunk!r}."
+            ) from exc
+    return tuple(result)
+
+
 def _read_csv(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":
@@ -138,8 +159,11 @@ def load_config() -> AppConfig:
         memory_file_path=os.getenv("MEMORY_FILE_PATH", "data/tangtang_memory.json"),
         web_search_enabled=_read_bool("WEB_SEARCH_ENABLED", True),
         web_search_max_results=_read_int("WEB_SEARCH_MAX_RESULTS", 4),
-        web_search_min_interval_seconds=_read_int("WEB_SEARCH_MIN_INTERVAL_SECONDS", 20),
+        web_search_min_interval_seconds=_read_int(
+            "WEB_SEARCH_MIN_INTERVAL_SECONDS", 20
+        ),
         groq_api_key=os.getenv("GROQ_API_KEY", ""),
         groq_model=os.getenv("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct"),
         klipy_api_key=os.getenv("KLIPY_API_KEY", ""),
+        trap_channel_ids=_read_int_csv("TRAP_CHANNEL_IDS"),
     )

@@ -46,6 +46,7 @@ class MucaSauceDiscordBot(discord.Client):
         self._scheduler = scheduler
         self._generator = generator
         self._guardrail = guardrail
+        self._trap_channel_ids: frozenset[int] = frozenset(config.trap_channel_ids)
         self._channel_locks: dict[int, asyncio.Lock] = {}
 
         name_candidates = [self._config.bot_name, *self._config.bot_name_aliases]
@@ -75,6 +76,10 @@ class MucaSauceDiscordBot(discord.Client):
             return
 
         if message.author.bot or message.author.id == self.user.id:
+            return
+
+        if message.guild and message.channel.id in self._trap_channel_ids:
+            await self._handle_trap(message)
             return
 
         content = (message.content or "").strip()
@@ -286,6 +291,63 @@ class MucaSauceDiscordBot(discord.Client):
         if is_first and trigger_type in _HARD_TRIGGERS:
             return await message.reply(stripped, mention_author=False)
         return await message.channel.send(stripped)
+
+    async def _handle_trap(self, message: discord.Message) -> None:
+        """Ban the triggering user and wipe their recent messages server-wide."""
+        guild = message.guild
+        assert guild is not None  # guaranteed by the caller guard
+        user = message.author
+        # DMChannel has no .name — fall back to the channel ID string
+        channel_name = getattr(message.channel, "name", str(message.channel.id))
+
+        LOGGER.warning(
+            "trap_triggered guild=%s channel=%s(%s) author=%s(%s)",
+            guild.id,
+            channel_name,
+            message.channel.id,
+            user.display_name,
+            user.id,
+        )
+
+        # Remove the evidence from the trap channel immediately.
+        try:
+            await message.delete()
+            LOGGER.info("trap_message_deleted message=%s", message.id)
+        except discord.Forbidden:
+            LOGGER.warning(
+                "trap: missing MANAGE_MESSAGES to delete message %s", message.id
+            )
+        except discord.HTTPException:
+            LOGGER.exception("trap: failed to delete message %s", message.id)
+
+        # Ban + purge the last 7 days of their messages across every channel.
+        try:
+            await guild.ban(
+                user,
+                reason=f"Bot trap: activity detected in #{channel_name}",
+                delete_message_seconds=604800,  # 7 days, Discord maximum
+            )
+            LOGGER.warning(
+                "trap_ban_success guild=%s author=%s(%s)",
+                guild.id,
+                user.display_name,
+                user.id,
+            )
+        except discord.Forbidden:
+            LOGGER.error(
+                "trap_ban_forbidden: bot lacks BAN_MEMBERS or target outranks bot "
+                "guild=%s author=%s(%s)",
+                guild.id,
+                user.display_name,
+                user.id,
+            )
+        except discord.HTTPException:
+            LOGGER.exception(
+                "trap_ban_failed guild=%s author=%s(%s)",
+                guild.id,
+                user.display_name,
+                user.id,
+            )
 
     @staticmethod
     def _preview_text(content: str) -> str:
