@@ -2,63 +2,62 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Awaitable, Callable, Tuple
+from collections import deque
+from typing import Any, Awaitable, Callable, Deque, Dict, Tuple
 
 LOGGER = logging.getLogger("discord-bot.response-queue")
 
 
 class AsyncResponseQueue:
-    """A simple bounded worker pool that runs coroutine jobs.
+    """A dedicated per-channel FIFO queue with a shared concurrency limit.
 
-    Jobs are enqueued as zero-arg coroutine functions (callables that return an
-    awaitable). The queue enforces a global concurrency semaphore for LLM calls
-    and starts a fixed number of workers.
+    Each channel gets its own queue and worker task to preserve ordering.
+    A shared semaphore limits the number of concurrent LLM jobs across all
+    channels.
     """
 
     def __init__(
         self,
-        worker_count: int = 3,
         concurrency: int = 3,
         timeout_seconds: int = 60,
     ) -> None:
-        self._queue: asyncio.Queue[Tuple[Callable[[], Awaitable[Any]], asyncio.Future]] = (
-            asyncio.Queue()
-        )
-        self._worker_count = worker_count
+        self._queues: Dict[int, Deque[Tuple[Callable[[], Awaitable[Any]], asyncio.Future]]] = {}
+        self._workers: Dict[int, asyncio.Task] = {}
         self._concurrency = concurrency
         self._timeout = timeout_seconds
-        self._workers: list[asyncio.Task] = []
         self._sem = asyncio.Semaphore(concurrency)
         self._started = False
 
     def start(self) -> None:
-        if self._started:
-            return
-        loop = asyncio.get_event_loop()
-        for _ in range(self._worker_count):
-            task = loop.create_task(self._worker())
-            self._workers.append(task)
         self._started = True
-        LOGGER.info("response-queue started workers=%s concurrency=%s", self._worker_count, self._concurrency)
+        LOGGER.info(
+            "response-queue ready concurrency=%s", self._concurrency,
+        )
 
-    def enqueue(self, coro_fn: Callable[[], Awaitable[Any]]) -> asyncio.Future:
-        """Enqueue a zero-arg coroutine function. Returns a Future for the result.
-
-        The returned Future will be resolved with the coroutine's return value
-        or set with an exception if the job fails or times out.
-        """
+    def enqueue(self, channel_id: int, coro_fn: Callable[[], Awaitable[Any]]) -> asyncio.Future:
+        """Enqueue a zero-arg coroutine function for the given channel."""
         loop = asyncio.get_running_loop()
         fut: asyncio.Future = loop.create_future()
-        self._queue.put_nowait((coro_fn, fut))
-        LOGGER.debug("enqueued job queue_size=%s", self._queue.qsize())
-        # Ensure workers are started even if caller forgot to call start()
+
+        queue = self._queues.setdefault(channel_id, deque())
+        queue.append((coro_fn, fut))
+        LOGGER.debug(
+            "enqueued job channel=%s queue_size=%s", channel_id, len(queue)
+        )
+
+        if channel_id not in self._workers or self._workers[channel_id].done():
+            self._workers[channel_id] = loop.create_task(self._channel_worker(channel_id))
+            LOGGER.debug("started channel worker channel=%s", channel_id)
+
         if not self._started:
             self.start()
+
         return fut
 
-    async def _worker(self) -> None:
-        while True:
-            coro_fn, fut = await self._queue.get()
+    async def _channel_worker(self, channel_id: int) -> None:
+        queue = self._queues[channel_id]
+        while queue:
+            coro_fn, fut = queue.popleft()
             try:
                 async with self._sem:
                     try:
@@ -66,15 +65,20 @@ class AsyncResponseQueue:
                         if not fut.done():
                             fut.set_result(result)
                     except asyncio.TimeoutError as exc:
-                        LOGGER.warning("job timed out after %s seconds", self._timeout)
+                        LOGGER.warning(
+                            "channel=%s job timed out after %s seconds",
+                            channel_id,
+                            self._timeout,
+                        )
                         if not fut.done():
                             fut.set_exception(exc)
-                    except Exception as exc:  # capture job exceptions
-                        LOGGER.exception("job raised exception")
+                    except Exception as exc:
+                        LOGGER.exception("channel=%s job raised exception", channel_id)
                         if not fut.done():
                             fut.set_exception(exc)
             finally:
-                try:
-                    self._queue.task_done()
-                except Exception:
-                    pass
+                if not queue:
+                    break
+        self._workers.pop(channel_id, None)
+        self._queues.pop(channel_id, None)
+        LOGGER.debug("stopped channel worker channel=%s", channel_id)

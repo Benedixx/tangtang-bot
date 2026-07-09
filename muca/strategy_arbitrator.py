@@ -22,6 +22,8 @@ class StrategyArbitrator:
             return ConversationStrategy.DIRECT_CHAT
 
         if state.total_message_count < 3 and not self._looks_like_question(latest_message):
+            if state.last_response_at is not None:
+                return ConversationStrategy.IN_CONTEXT_CHIME_IN
             return ConversationStrategy.KEEP_SILENT
 
         if (

@@ -10,7 +10,8 @@ import discord
 from bot_memory import TangtangMemoryStore
 from config import AppConfig, load_config
 from llm import GroqClient, OpenRouterClient
-from models import ChatMessage, ConversationStrategy, TriggerType
+from collections import deque
+from models import ChannelState, ChatMessage, ConversationStrategy, TriggerType
 from muca import DialogAnalyzer, StrategyArbitrator
 from sauce import PromptGuardrail, SauceGenerator, SauceScheduler
 from sauce.response_queue import AsyncResponseQueue
@@ -111,6 +112,9 @@ class MucaSauceDiscordBot(discord.Client):
 
         async with lock:
             state = self._analyzer.get_state(channel_id)
+            if not state.messages:
+                await self._hydrate_state_from_history(message, state)
+
             trigger_type = await self._detect_trigger_type(message, state, content)
 
             LOGGER.info("[request=%s] trigger=%s", request_id, trigger_type.value)
@@ -156,6 +160,19 @@ class MucaSauceDiscordBot(discord.Client):
                 state, limit=self._config.max_context_messages
             )
 
+            # Capture state snapshot for the queued job so later incoming messages
+            # do not mutate the context used by this request.
+            state_snapshot = ChannelState(
+                messages=deque(state.messages, maxlen=self._config.max_context_messages),
+                summary=state.summary,
+                total_message_count=state.total_message_count,
+                message_count_since_summary=state.message_count_since_summary,
+                participant_message_count=dict(state.participant_message_count),
+                participant_names=dict(state.participant_names),
+                bot_message_ids=set(state.bot_message_ids),
+                last_response_at=state.last_response_at,
+            )
+
             LOGGER.info("[request=%s] strategy=%s", request_id, strategy.value)
 
             should_engage, reason = await self._scheduler.should_engage(
@@ -199,7 +216,7 @@ class MucaSauceDiscordBot(discord.Client):
                         async for chunk in self._generator.generate_response_chunks(
                             strategy=strategy,
                             trigger_type=trigger_type,
-                            state=state,
+                            state=state_snapshot,
                             latest_author_name=message.author.display_name,
                             latest_message=content,
                             addressee=addressee,
@@ -276,8 +293,8 @@ class MucaSauceDiscordBot(discord.Client):
 
             # Enqueue the job and don't await it here — return to accept more messages.
             try:
-                fut = self._response_queue.enqueue(lambda: _job())
-                LOGGER.info("[request=%s] action=enqueued", request_id)
+                fut = self._response_queue.enqueue(channel_id, lambda: _job())
+                LOGGER.info("[request=%s] action=enqueued channel=%s", request_id, channel_id)
             except Exception:
                 LOGGER.exception("[request=%s] enqueue_failed", request_id)
                 # Fall back to inline handling if enqueue fails
