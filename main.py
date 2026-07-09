@@ -507,7 +507,6 @@ def _build_bot(config: AppConfig) -> MucaSauceDiscordBot:
 
     # Attach and configure the response queue (workers started on ready)
     bot._response_queue = AsyncResponseQueue(
-        worker_count=config.queue_workers,
         concurrency=config.llm_concurrency,
         timeout_seconds=config.llm_timeout_seconds,
     )
