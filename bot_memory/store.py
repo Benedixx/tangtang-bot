@@ -228,7 +228,29 @@ class TangtangMemoryStore:
             self._save()
 
     def _save(self) -> None:
-        self._path.write_text(json.dumps(self._data, ensure_ascii=True, indent=2), encoding="utf-8")
+        """Persist memory to disk.
+
+        If called from an active event loop, offload the write to a background
+        thread to avoid blocking the event loop. If no loop is running (startup
+        time), perform a synchronous write.
+        """
+        payload = json.dumps(self._data, ensure_ascii=True, indent=2)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop — safe to write synchronously (startup path).
+            self._path.write_text(payload, encoding="utf-8")
+            return
+
+        # Running inside an event loop — offload to a thread and don't await.
+        try:
+            asyncio.create_task(asyncio.to_thread(self._path.write_text, payload, "utf-8"))
+        except Exception:
+            # Fall back to synchronous write if scheduling fails for some reason.
+            try:
+                self._path.write_text(payload, encoding="utf-8")
+            except Exception:
+                LOGGER.exception("Failed to persist memory file")
 
 
 def _default_payload() -> dict[str, object]:

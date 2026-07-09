@@ -29,6 +29,10 @@ class AppConfig:
     groq_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
     klipy_api_key: str = ""
     trap_channel_ids: tuple[int, ...] = ()
+    # Queue / LLM concurrency settings
+    queue_workers: int = 3
+    llm_concurrency: int = 3
+    llm_timeout_seconds: int = 60
 
 
 def _require(name: str, value: str | None) -> str:
@@ -166,4 +170,7 @@ def load_config() -> AppConfig:
         groq_model=os.getenv("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct"),
         klipy_api_key=os.getenv("KLIPY_API_KEY", ""),
         trap_channel_ids=_read_int_csv("TRAP_CHANNEL_IDS"),
+        queue_workers=_read_int("QUEUE_WORKERS", 3),
+        llm_concurrency=_read_int("LLM_CONCURRENCY", 3),
+        llm_timeout_seconds=_read_int("LLM_TIMEOUT_SECONDS", 60),
     )
