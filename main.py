@@ -192,60 +192,60 @@ class MucaSauceDiscordBot(discord.Client):
 
             async def _job() -> None:
                 channel_lock = self._channel_locks.setdefault(channel_id, asyncio.Lock())
-                async with channel_lock:
-                    chunks: list[str] = []
-                    sent_messages: list[discord.Message] = []
-                    try:
-                        async with message.channel.typing():
-                            async for chunk in self._generator.generate_response_chunks(
-                                strategy=strategy,
-                                trigger_type=trigger_type,
-                                state=state,
-                                latest_author_name=message.author.display_name,
-                                latest_message=content,
-                                addressee=addressee,
-                                request_id=request_id,
-                            ):
-                                chunks.append(chunk)
-                                try:
-                                    sent_msg = await self._send_chunk(
-                                        message, chunk, trigger_type, not sent_messages
-                                    )
-                                    if sent_msg:
-                                        sent_messages.append(sent_msg)
-                                except discord.HTTPException:
-                                    LOGGER.exception("[request=%s] chunk_send_failed", request_id)
-                    except Exception:
-                        LOGGER.exception("[request=%s] generator_failed", request_id)
-                        if trigger_type in _HARD_TRIGGERS and not sent_messages:
+                chunks: list[str] = []
+                sent_messages: list[discord.Message] = []
+                try:
+                    async with message.channel.typing():
+                        async for chunk in self._generator.generate_response_chunks(
+                            strategy=strategy,
+                            trigger_type=trigger_type,
+                            state=state,
+                            latest_author_name=message.author.display_name,
+                            latest_message=content,
+                            addressee=addressee,
+                            request_id=request_id,
+                        ):
+                            chunks.append(chunk)
                             try:
-                                await message.reply(
-                                    "I had a temporary issue while generating a response. Please try again.",
-                                    mention_author=False,
+                                sent_msg = await self._send_chunk(
+                                    message, chunk, trigger_type, not sent_messages
                                 )
-                            except Exception:
-                                LOGGER.exception("failed to send failure reply")
-                        return
+                                if sent_msg:
+                                    sent_messages.append(sent_msg)
+                            except discord.HTTPException:
+                                LOGGER.exception("[request=%s] chunk_send_failed", request_id)
+                except Exception:
+                    LOGGER.exception("[request=%s] generator_failed", request_id)
+                    if trigger_type in _HARD_TRIGGERS and not sent_messages:
+                        try:
+                            await message.reply(
+                                "I had a temporary issue while generating a response. Please try again.",
+                                mention_author=False,
+                            )
+                        except Exception:
+                            LOGGER.exception("failed to send failure reply")
+                    return
 
-                    if not sent_messages:
-                        elapsed_ms = int((time.perf_counter() - started) * 1000)
-                        LOGGER.info(
-                            "[request=%s] action=empty_response duration_ms=%s",
-                            request_id,
-                            elapsed_ms,
-                        )
-                        return
-
-                    full_response = "\n".join(chunks)
-                    first_sent = sent_messages[0]
-
+                if not sent_messages:
+                    elapsed_ms = int((time.perf_counter() - started) * 1000)
                     LOGGER.info(
-                        "[request=%s] generated chunks=%s response_chars=%s",
+                        "[request=%s] action=empty_response duration_ms=%s",
                         request_id,
-                        len(chunks),
-                        len(full_response),
+                        elapsed_ms,
                     )
+                    return
 
+                full_response = "\n".join(chunks)
+                first_sent = sent_messages[0]
+
+                LOGGER.info(
+                    "[request=%s] generated chunks=%s response_chars=%s",
+                    request_id,
+                    len(chunks),
+                    len(full_response),
+                )
+
+                async with channel_lock:
                     is_gif_only = len(chunks) == 1 and _GIF_URL_RE.match(full_response.strip())
                     if not is_gif_only:
                         self._analyzer.add_message(
@@ -262,17 +262,17 @@ class MucaSauceDiscordBot(discord.Client):
                     for sent_msg in sent_messages:
                         self._analyzer.mark_bot_message(channel_id, sent_msg.id)
 
-                    elapsed_ms = int((time.perf_counter() - started) * 1000)
-                    LOGGER.info(
-                        "[request=%s] action=respond sent_chunks=%s duration_ms=%s",
-                        request_id,
-                        len(sent_messages),
-                        elapsed_ms,
-                    )
-
                     if strategy == ConversationStrategy.INITIATIVE_SUMMARY:
                         self._analyzer.set_summary(channel_id, full_response)
                         LOGGER.info("[request=%s] summary_updated=true", request_id)
+
+                elapsed_ms = int((time.perf_counter() - started) * 1000)
+                LOGGER.info(
+                    "[request=%s] action=respond sent_chunks=%s duration_ms=%s",
+                    request_id,
+                    len(sent_messages),
+                    elapsed_ms,
+                )
 
             # Enqueue the job and don't await it here — return to accept more messages.
             try:
