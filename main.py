@@ -83,8 +83,12 @@ class MucaSauceDiscordBot(discord.Client):
         if self.user is None:
             return
 
-        if message.author.bot or message.author.id == self.user.id:
+        if message.author.id == self.user.id:
             return
+
+        if message.author.bot:
+            if self.user not in message.mentions and message.reference is None:
+                return
 
         if message.guild and message.channel.id in self._trap_channel_ids:
             await self._handle_trap(message)
