@@ -444,6 +444,41 @@ class MucaSauceDiscordBot(discord.Client):
             pattern.search(content) is not None for pattern in self._bot_name_patterns
         )
 
+    async def _hydrate_state_from_history(
+        self, message: discord.Message, state
+    ) -> None:
+        """Populate channel state from recent channel history if current state is empty."""
+        try:
+            history_messages = [
+                msg
+                async for msg in message.channel.history(limit=50, oldest_first=False)
+                if msg.content is not None
+            ]
+        except Exception:
+            LOGGER.exception("Failed to hydrate channel history")
+            return
+
+        for msg in reversed(history_messages):
+            state.messages.append(
+                ChatMessage(
+                    message_id=msg.id,
+                    author_id=msg.author.id,
+                    author_name=msg.author.display_name,
+                    content=msg.content,
+                    created_at=msg.created_at,
+                    is_bot=msg.author.id == self.user.id,
+                )
+            )
+            state.total_message_count += 1
+            if not msg.author.bot:
+                state.message_count_since_summary += 1
+                current = state.participant_message_count.get(msg.author.id, 0)
+                state.participant_message_count[msg.author.id] = current + 1
+                state.participant_names[msg.author.id] = msg.author.display_name
+            if msg.author.id == self.user.id:
+                state.bot_message_ids.add(msg.id)
+                state.last_response_at = msg.created_at
+
 
 def _build_bot(config: AppConfig) -> MucaSauceDiscordBot:
     intents = discord.Intents.default()
