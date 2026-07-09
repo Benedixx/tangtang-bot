@@ -331,14 +331,14 @@ class SauceGenerator:
             n_complete = (len(parts) - 1) // 2
             for i in range(n_complete):
                 raw = (parts[2 * i] + parts[2 * i + 1]).strip()
-                chunk = self._normalize_chunk(raw)
+                chunk = self._ensure_prefix(self._normalize_chunk(raw))
                 if chunk and len(chunk) >= 3:
                     chunk_count += 1
                     yield chunk
             buffer = parts[-1]
 
         if buffer.strip():
-            chunk = self._normalize_chunk(buffer.strip())
+            chunk = self._ensure_prefix(self._normalize_chunk(buffer.strip()))
             if chunk:
                 chunk_count += 1
                 yield chunk
@@ -406,9 +406,19 @@ class SauceGenerator:
         cleaned = text.strip().strip('"')
         cleaned = re.sub(r"!\[.*?\]\((https?://\S+)\)", r"\1", cleaned)
         cleaned = re.sub(r"\*?\*?\[GIF\]\*?\*?\s*", "", cleaned).strip()
-        if len(cleaned) <= self._max_response_chars:
-            return cleaned
-        return cleaned[: self._max_response_chars - 3].rstrip() + "..."
+        normalized = self._ensure_prefix(cleaned)
+        if len(normalized) <= self._max_response_chars:
+            return normalized
+        return normalized[: self._max_response_chars - 3].rstrip() + "..."
+
+    @staticmethod
+    def _ensure_prefix(text: str) -> str:
+        prefix = "!k"
+        if text.startswith(prefix):
+            if len(text) > len(prefix) and text[len(prefix)] != " ":
+                return prefix + " " + text[len(prefix):]
+            return text
+        return f"{prefix} {text}"
 
     @staticmethod
     def _extract_gif_url(result: str) -> str | None:
