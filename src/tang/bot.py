@@ -33,6 +33,7 @@ class TangBot(discord.Client):
         self.llm = OpenRouterClient(
             api_keys=config.openrouter_api_keys,
             model_name=config.model_name,
+            stream_timeout=config.stream_timeout,
         )
         self.groq = (
             GroqClient(api_key=config.groq_api_key, model=config.groq_model)

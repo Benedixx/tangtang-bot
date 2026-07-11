@@ -10,6 +10,7 @@ DEFAULT_MODEL = "cognitivecomputations/dolphin-mistral-24b-venice-edition:free"
 DEFAULT_GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 DEFAULT_COOLDOWN = 12
 DEFAULT_MAX_CONTEXT = 40
+DEFAULT_STREAM_TIMEOUT = 20.0
 
 
 @dataclass(slots=True)
@@ -31,6 +32,7 @@ class Config:
     klipy_api_key: str = ""
     trap_channel_ids: tuple[int, ...] = ()
     bot_prefix: str = "!k"
+    stream_timeout: float = DEFAULT_STREAM_TIMEOUT
 
 
 def _require(name: str, value: str | None) -> str:
@@ -47,6 +49,16 @@ def _int(name: str, default: int) -> int:
         return int(raw)
     except ValueError:
         raise ValueError(f"{name} must be an integer") from None
+
+
+def _float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        raise ValueError(f"{name} must be a number") from None
 
 
 def _bool(name: str, default: bool) -> bool:
@@ -125,4 +137,5 @@ def load() -> Config:
         web_search_min_interval_seconds=_int("WEB_SEARCH_MIN_INTERVAL_SECONDS", 20),
         klipy_api_key=os.getenv("KLIPY_API_KEY", ""),
         trap_channel_ids=_int_csv("TRAP_CHANNEL_IDS"),
+        stream_timeout=_float("STREAM_TIMEOUT", DEFAULT_STREAM_TIMEOUT),
     )

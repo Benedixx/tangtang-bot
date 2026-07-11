@@ -21,6 +21,7 @@ class OpenRouterClient:
         model_name: str,
         site_name: str | None = None,
         site_url: str | None = None,
+        stream_timeout: float = 15.0,
     ) -> None:
         if not api_keys:
             raise ValueError("OpenRouterClient requires at least one API key.")
@@ -36,6 +37,7 @@ class OpenRouterClient:
         self._model = model_name
         self._site_name = site_name
         self._site_url = site_url
+        self._stream_timeout = stream_timeout
         self._next = 0
 
     # ------------------------------------------------------------------
@@ -199,7 +201,7 @@ class OpenRouterClient:
                     )
 
                     total = 0
-                    deadline = started + 8.0
+                    deadline = started + self._stream_timeout
                     async for chunk in stream:
                         if not chunk.choices:
                             continue
