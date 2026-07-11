@@ -124,7 +124,7 @@ class ChatHandler:
         if self.bot.user and self.bot.user in message.mentions:
             return TriggerType.DIRECT_MENTION
 
-        if message.author.bot and content.startswith(self._prefix):
+        if (message.author.bot or message.webhook_id is not None) and content.startswith(self._prefix):
             return TriggerType.BOT_PREFIX
 
         if self._is_reply_to_bot(message, state):
@@ -161,8 +161,8 @@ class ChatHandler:
         if self.bot.user is None or message.author.id == self.bot.user.id:
             return
 
-        # Other bots: only respond via !k prefix
-        if message.author.bot:
+        # Other bots/webhooks: only respond via !k prefix
+        if message.author.bot or message.webhook_id is not None:
             if not (message.content or "").startswith(self._prefix):
                 return
 
@@ -170,8 +170,8 @@ class ChatHandler:
         content = (message.content or "").strip()
         request_id = f"msg-{message.id}"
 
-        # Strip !k prefix from bot messages
-        if message.author.bot and content.startswith(self._prefix):
+        # Strip !k prefix from bot/webhook messages
+        if (message.author.bot or message.webhook_id is not None) and content.startswith(self._prefix):
             content = content[len(self._prefix):].strip()
 
         if not content:
@@ -184,7 +184,7 @@ class ChatHandler:
             author_name=message.author.display_name,
             content=content,
             created_at=message.created_at,
-            is_bot=message.author.bot,
+            is_bot=message.author.bot or message.webhook_id is not None,
         ))
 
         # Snapshot state for async generation
@@ -285,8 +285,8 @@ class ChatHandler:
                 )
 
                 # Split into bubbles and send
-                # Only prefix with !k when responding to a bot (inter-bot protocol)
-                prefix = self._prefix if message.author.bot else ""
+                # Only prefix with !k when responding to a bot/webhook (inter-bot protocol)
+                prefix = self._prefix if (message.author.bot or message.webhook_id is not None) else ""
                 sent_messages: list[discord.Message] = []
                 async for bubble_text in bubbles(stream, bot_prefix=prefix):
                     try:
