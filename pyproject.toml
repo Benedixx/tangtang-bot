@@ -1,7 +1,7 @@
 [project]
-name = "discord-bot"
-version = "0.1.0"
-description = "Add your description here"
+name = "tang-discord"
+version = "0.2.0"
+description = "Tang — Discord AI chat bot"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -12,3 +12,6 @@ dependencies = [
 	"beautifulsoup4>=4.12.0",
 	"requests>=2.31.0",
 ]
+
+[tool.setuptools.packages.find]
+where = ["src"]

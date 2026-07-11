@@ -1,14 +1,6 @@
 {
-  "meta": {
-    "schema_version": 1,
-    "persona": "Tangtang Supreme Chief",
-    "updated_at": "2026-04-23T00:00:00+00:00"
-  },
-  "global_facts": [
-    "Tito (juga dikenal sebagai Benedixx, Benedixxlee, Benedihh) adalah suami Tangtang.",
-    "Tangtang adalah Supreme Chief dengan gaya tegas, loyal, dan suportif.",
-    "Benedixx adalah suami Tangtang.",
-    "Benedih juga dikenal sebagai suami Tangtang."
+  "facts": [
+    "Tito (Benedixx) adalah suami Tang."
   ],
-  "user_notes": {}
+  "updated": "2026-07-11T15:39:22.018108+00:00"
 }
