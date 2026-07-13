@@ -42,7 +42,7 @@ class Moderation:
         try:
             await guild.ban(
                 user,
-                reason=f"Trap channel activity in #{channel_name}",
+                reason="Get a fucking life dude",
                 delete_message_seconds=604800,
             )
             LOGGER.warning("trap_ban guild=%s user=%s(%s)", guild.id, user.display_name, user.id)
