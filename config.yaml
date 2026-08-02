@@ -1,0 +1,26 @@
+trap:
+  enabled: true
+  channels: [1072006622412558396, 899474129772748860]
+  exempt_roles: []
+  exempt_bots: []
+  delete_message_seconds: 3600
+  mod_log_channel: 0
+
+chat:
+  # Empty allowed_channels = respond in ALL channels. Fill with channel IDs to restrict.
+  allowed_channels: []
+  min_length: 8
+  cooldown_s: 120
+  debounce_s: 3
+  budget_per_hour: 4
+  base_threshold: 0.65
+  register: gw_lu
+
+models:
+  gate: openai/gpt-oss-20b
+  responder: openai/gpt-oss-120b
+
+gif:
+  staging_channel: 0
+  dir: data/gifs
+  manifest: data/gif_manifest.json

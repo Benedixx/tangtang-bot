@@ -1,141 +1,166 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
+import yaml
 from dotenv import load_dotenv
 
+ROOT = Path(__file__).resolve().parents[2]
 
-DEFAULT_MODEL = "cognitivecomputations/dolphin-mistral-24b-venice-edition:free"
-DEFAULT_GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
-DEFAULT_COOLDOWN = 12
-DEFAULT_MAX_CONTEXT = 40
-DEFAULT_STREAM_TIMEOUT = 20.0
+
+@dataclass(slots=True)
+class TrapConfig:
+    enabled: bool = True
+    channels: tuple[int, ...] = ()
+    exempt_roles: tuple[int, ...] = ()
+    exempt_bots: tuple[int, ...] = ()
+    delete_message_seconds: int = 3600
+    mod_log_channel: int = 0
+
+
+@dataclass(slots=True)
+class ChatConfig:
+    allowed_channels: tuple[int, ...] = ()
+    dm_allowed: bool = True
+    min_length: int = 8
+    cooldown_s: float = 120.0
+    debounce_s: float = 3.0
+    budget_per_hour: int = 4
+    base_threshold: float = 0.65
+    register: str = "gw_lu"
+
+
+@dataclass(slots=True)
+class ModelsConfig:
+    gate: str = "openai/gpt-oss-20b"
+    responder: str = "openai/gpt-oss-120b"
+
+
+@dataclass(slots=True)
+class GifConfig:
+    staging_channel: int = 0
+    dir: str = "data/gifs"
+    manifest: str = "data/gif_manifest.json"
 
 
 @dataclass(slots=True)
 class Config:
     discord_token: str
-    openrouter_api_keys: tuple[str, ...]
     groq_api_key: str
-    model_name: str = DEFAULT_MODEL
-    groq_model: str = DEFAULT_GROQ_MODEL
-    bot_name: str = "Tang"
-    bot_name_aliases: tuple[str, ...] = ("tang", "koyuki")
-    max_context_messages: int = DEFAULT_MAX_CONTEXT
-    response_cooldown_seconds: int = DEFAULT_COOLDOWN
-    max_response_chars: int = 900
-    memory_file_path: str = "data/tang_memory.json"
-    web_search_enabled: bool = True
-    web_search_max_results: int = 4
-    web_search_min_interval_seconds: int = 20
-    klipy_api_key: str = ""
-    trap_channel_ids: tuple[int, ...] = ()
-    bot_prefix: str = "!k"
-    stream_timeout: float = DEFAULT_STREAM_TIMEOUT
+    bot_name: str = "koyuki"
+    bot_name_aliases: tuple[str, ...] = ()
+    trap: TrapConfig = field(default_factory=TrapConfig)
+    chat: ChatConfig = field(default_factory=ChatConfig)
+    models: ModelsConfig = field(default_factory=ModelsConfig)
+    gif: GifConfig = field(default_factory=GifConfig)
+    persona_examples: str = "data/persona_examples.yaml"
 
 
-def _require(name: str, value: str | None) -> str:
-    if value:
-        return value
+def _require(name: str) -> str:
+    val = os.getenv(name)
+    if val:
+        return val
     raise ValueError(f"Missing required environment variable: {name}")
 
 
-def _int(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None or raw == "":
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        raise ValueError(f"{name} must be an integer") from None
+def _csv_env(name: str) -> tuple[str, ...]:
+    raw = os.getenv(name, "")
+    return tuple(x.strip() for x in raw.split(",") if x.strip())
 
 
-def _float(name: str, default: float) -> float:
-    raw = os.getenv(name)
-    if raw is None or raw == "":
-        return default
+def _int_list(raw: Any) -> tuple[int, ...]:
+    if raw is None:
+        return ()
+    if isinstance(raw, (int, str)):
+        try:
+            return (int(raw),)
+        except (TypeError, ValueError):
+            return ()
+    out: list[int] = []
+    for item in raw:
+        try:
+            out.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    return tuple(out)
+
+
+def _f(key: str, mapping: dict[str, Any], default: float) -> float:
+    raw = mapping.get(key, default)
     try:
         return float(raw)
-    except ValueError:
-        raise ValueError(f"{name} must be a number") from None
-
-
-def _bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None or raw == "":
+    except (TypeError, ValueError):
         return default
-    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-def _openrouter_keys() -> tuple[str, ...]:
-    keys: list[str] = []
-
-    csv = os.getenv("OPENROUTER_API_KEYS", "")
-    if csv:
-        keys.extend(k.strip() for k in csv.split(",") if k.strip())
-
-    for env in ("OPENROUTER_API_KEY", "OPENROUTER_KEY", "OPENROUTER_API_KEY_2", "OPENROUTER_KEY_2", "OPENROUTER_API_KEY_3", "OPENROUTER_KEY_3"):
-        val = os.getenv(env)
-        if val:
-            keys.append(val.strip())
-
-    seen: set[str] = set()
-    deduped = [k for k in keys if k and k not in seen and not seen.add(k)]
-
-    if not deduped:
-        raise ValueError(
-            "Missing OpenRouter key. Set OPENROUTER_API_KEYS or OPENROUTER_API_KEY."
-        )
-    return tuple(deduped)
-
-
-def _int_csv(name: str) -> tuple[int, ...]:
-    raw = os.getenv(name)
-    if not raw or not raw.strip():
-        return ()
-    result: list[int] = []
-    for chunk in raw.split(","):
-        chunk = chunk.strip()
-        if not chunk:
-            continue
-        try:
-            result.append(int(chunk))
-        except ValueError:
-            raise ValueError(f"{name} must be comma-separated integers") from None
-    return tuple(result)
-
-
-def _csv(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
-    raw = os.getenv(name)
-    if not raw or not raw.strip():
+def _i(key: str, mapping: dict[str, Any], default: int) -> int:
+    raw = mapping.get(key, default)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
         return default
-    items = [chunk.strip() for chunk in raw.split(",") if chunk.strip()]
-    if not items:
-        return default
-    seen: set[str] = set()
-    return tuple(item for item in items if item.lower() not in seen and not seen.add(item.lower()))
+
+
+def _b(key: str, mapping: dict[str, Any], default: bool) -> bool:
+    raw = mapping.get(key, default)
+    if isinstance(raw, bool):
+        return raw
+    return str(raw).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def load() -> Config:
     load_dotenv()
 
+    env_path = os.getenv("CONFIG_PATH", "")
+    config_path = Path(env_path) if env_path else ROOT / "config.yaml"
+    data: dict[str, Any] = {}
+    if config_path.exists():
+        try:
+            data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError:
+            raise ValueError(f"Failed to parse config file: {config_path}") from None
+    if not isinstance(data, dict):
+        data = {}
+
+    trap = data.get("trap") if isinstance(data.get("trap"), dict) else {}
+    chat = data.get("chat") if isinstance(data.get("chat"), dict) else {}
+    models = data.get("models") if isinstance(data.get("models"), dict) else {}
+    gif = data.get("gif") if isinstance(data.get("gif"), dict) else {}
+
     return Config(
-        discord_token=_require("DISCORD_TOKEN", os.getenv("DISCORD_TOKEN")),
-        openrouter_api_keys=_openrouter_keys(),
-        groq_api_key=os.getenv("GROQ_API_KEY", ""),
-        model_name=os.getenv("OPENROUTER_MODEL", DEFAULT_MODEL),
-        groq_model=os.getenv("GROQ_MODEL", DEFAULT_GROQ_MODEL),
-        bot_name=os.getenv("BOT_NAME", "Tang"),
-        bot_name_aliases=_csv("BOT_NAME_ALIASES", ("tang", "koyuki")),
-        max_context_messages=_int("MAX_CONTEXT_MESSAGES", DEFAULT_MAX_CONTEXT),
-        response_cooldown_seconds=_int("RESPONSE_COOLDOWN_SECONDS", DEFAULT_COOLDOWN),
-        max_response_chars=_int("MAX_RESPONSE_CHARS", 900),
-        memory_file_path=os.getenv("MEMORY_FILE_PATH", "data/tang_memory.json"),
-        web_search_enabled=_bool("WEB_SEARCH_ENABLED", True),
-        web_search_max_results=_int("WEB_SEARCH_MAX_RESULTS", 4),
-        web_search_min_interval_seconds=_int("WEB_SEARCH_MIN_INTERVAL_SECONDS", 20),
-        klipy_api_key=os.getenv("KLIPY_API_KEY", ""),
-        trap_channel_ids=_int_csv("TRAP_CHANNEL_IDS"),
-        stream_timeout=_float("STREAM_TIMEOUT", DEFAULT_STREAM_TIMEOUT),
+        discord_token=_require("DISCORD_TOKEN"),
+        groq_api_key=_require("GROQ_API_KEY"),
+        bot_name=os.getenv("BOT_NAME", "koyuki"),
+        bot_name_aliases=_csv_env("BOT_NAME_ALIASES"),
+        trap=TrapConfig(
+            enabled=_b("enabled", trap, True),
+            channels=_int_list(trap.get("channels")),
+            exempt_roles=_int_list(trap.get("exempt_roles")),
+            exempt_bots=_int_list(trap.get("exempt_bots")),
+            delete_message_seconds=_i("delete_message_seconds", trap, 3600),
+            mod_log_channel=_i("mod_log_channel", trap, 0),
+        ),
+        chat=ChatConfig(
+            allowed_channels=_int_list(chat.get("allowed_channels")),
+            dm_allowed=_b("dm_allowed", chat, True),
+            min_length=_i("min_length", chat, 8),
+            cooldown_s=_f("cooldown_s", chat, 120.0),
+            debounce_s=_f("debounce_s", chat, 3.0),
+            budget_per_hour=_i("budget_per_hour", chat, 4),
+            base_threshold=_f("base_threshold", chat, 0.65),
+            register=str(chat.get("register", "gw_lu")),
+        ),
+        models=ModelsConfig(
+            gate=str(models.get("gate", "openai/gpt-oss-20b")),
+            responder=str(models.get("responder", "openai/gpt-oss-120b")),
+        ),
+        gif=GifConfig(
+            staging_channel=_i("staging_channel", gif, 0),
+            dir=str(gif.get("dir", "data/gifs")),
+            manifest=str(gif.get("manifest", "data/gif_manifest.json")),
+        ),
+        persona_examples=str(data.get("persona_examples", "data/persona_examples.yaml")),
     )

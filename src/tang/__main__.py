@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from .bot import TangBot
 from .config import load
+from .gateway import Gateway
 
 
 async def main() -> None:
@@ -14,12 +14,12 @@ async def main() -> None:
     )
 
     config = load()
-    bot = TangBot(config)
+    gateway = Gateway(config)
 
     try:
-        await bot.start(config.discord_token)
+        await gateway.start(config.discord_token)
     except KeyboardInterrupt:
-        await bot.close()
+        await gateway.close()
 
 
 if __name__ == "__main__":
