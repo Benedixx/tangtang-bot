@@ -48,7 +48,7 @@ class Responder:
                     messages,
                     self._schemas,
                     temperature=0.9,
-                    max_tokens=100,
+                    max_tokens=200 if rnd else 100,
                     request_id=request_id,
                     label=f"respond:r{rnd}",
                 )
@@ -95,7 +95,7 @@ class Responder:
                 messages,
                 self._schemas,
                 temperature=0.9,
-                max_tokens=100,
+                max_tokens=200,
                 request_id=request_id,
                 label="respond:final",
             )

@@ -86,7 +86,7 @@ class WebSearchTool:
 
     @staticmethod
     def _format(results: list[dict[str, Any]]) -> str:
-        lines = ["web results:"]
+        lines = ["web search results — summarize this info in your reply:"]
         for i, r in enumerate(results, 1):
             title = str(r.get("title", "")).replace("\n", " ").strip()
             body = str(r.get("body", "")).replace("\n", " ").strip()
