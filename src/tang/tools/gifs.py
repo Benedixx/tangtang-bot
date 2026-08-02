@@ -38,6 +38,19 @@ GIF_TAGS = [
     "deal",
 ]
 
+# Explicit tag mapping for files whose names don't contain GIF_TAGS tokens.
+_TAG_MAP: dict[str, list[str]] = {
+    "dance": ["happy", "celebrate", "hype"],
+    "smile": ["happy", "love"],
+    "mad": ["angry"],
+    "pat-pat": ["love"],
+    "peace": ["sip", "deal"],
+    "show-up": ["hype"],
+    "useless-info": ["awkward", "confused"],
+    "here-take-this": ["nope", "shrug"],
+    "who-is-this-kid": ["confused", "surprised", "thinking"],
+}
+
 TOOL_SCHEMA: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -76,7 +89,17 @@ class GifStore:
             LOGGER.exception("gif_manifest_load_failed path=%s", self._manifest_path)
             return
         if isinstance(data, list):
-            self._entries = [e for e in data if isinstance(e, dict) and e.get("cdn_url")]
+            changed = False
+            self._entries = []
+            for e in data:
+                if not isinstance(e, dict) or not e.get("cdn_url"):
+                    continue
+                if not e.get("tags"):
+                    e["tags"] = self._tags_for(str(e.get("id", "")))
+                    changed = True
+                self._entries.append(e)
+            if changed:
+                self._save()
 
     def _save(self) -> None:
         self._manifest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -109,8 +132,8 @@ class GifStore:
             size = path.stat().st_size
             if size > MAX_FILE_BYTES:
                 LOGGER.warning(
-                    "gif_skipped_too_large file=%s size_mb=%.1f limit_mb=20 — compress it (e.g. gifsicle -O3)",
-                    path.name, size / (1024 * 1024),
+                    "gif_skipped_too_large file=%s size_mb=%.1f limit_mb=%.0f — compress it (e.g. gifsicle -O3)",
+                    path.name, size / (1024 * 1024), MAX_FILE_BYTES / (1024 * 1024),
                 )
                 continue
             try:
@@ -134,12 +157,12 @@ class GifStore:
 
     @staticmethod
     def _tags_for(stem: str) -> list[str]:
+        tags = list(_TAG_MAP.get(stem, ()))
         tokens = [t for t in stem.replace("_", "-").split("-") if t]
-        matched: list[str] = []
         for tok in tokens:
-            if tok in GIF_TAGS and tok not in matched:
-                matched.append(tok)
-        return matched
+            if tok in GIF_TAGS and tok not in tags:
+                tags.append(tok)
+        return tags
 
     def contains(self, url: str) -> bool:
         return any(e["cdn_url"] == url for e in self._entries)
