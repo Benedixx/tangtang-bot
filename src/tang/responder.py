@@ -7,6 +7,7 @@ from typing import Any
 from .groq import GroqClient
 from .persona import PersonaBuilder
 from .queue import ChannelState, Job
+from .tools.gifs import TOOL_NAME as GIF_NAME
 
 LOGGER = logging.getLogger("tang.responder")
 
@@ -85,6 +86,8 @@ class Responder:
                         except Exception as exc:
                             result = f"tool error: {exc}"
                             LOGGER.exception("[%s] tool_error name=%s", request_id, name)
+                    if name == GIF_NAME and result:
+                        return result
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
