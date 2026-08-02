@@ -32,6 +32,10 @@ class Responder:
 
     async def run(self, job: Job, state: ChannelState, request_id: str) -> str | None:
         lines = [f"{m.author_name}: {m.content}" for m in job.snapshot]
+        LOGGER.info(
+            "[%s] respond_context msgs=%s chars=%s",
+            request_id, len(job.snapshot), sum(len(l) for l in lines),
+        )
         history = f"{HISTORY_OPEN}\n" + "\n".join(lines) + f"\n{HISTORY_CLOSE}"
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": self._persona.system_prompt()},

@@ -13,7 +13,9 @@ LOGGER = logging.getLogger("tang.tools.gif")
 
 TOOL_NAME = "send_gif"
 
-MAX_FILE_BYTES = 25 * 1024 * 1024  # Discord non-boosted attachment limit
+# Discord's free-server attachment limit is ~10 MB; files right at the
+# boundary 413 unpredictably, and big GIFs are pointless as reactions anyway.
+MAX_FILE_BYTES = 10 * 1024 * 1024
 
 GIF_TAGS = [
     "laugh",
@@ -107,14 +109,17 @@ class GifStore:
             size = path.stat().st_size
             if size > MAX_FILE_BYTES:
                 LOGGER.warning(
-                    "gif_skipped_too_large file=%s size_mb=%.1f limit_mb=25",
+                    "gif_skipped_too_large file=%s size_mb=%.1f limit_mb=20 — compress it (e.g. gifsicle -O3)",
                     path.name, size / (1024 * 1024),
                 )
                 continue
             try:
                 sent = await channel.send(file=discord.File(path))
             except discord.HTTPException:
-                LOGGER.exception("gif_upload_failed file=%s", path.name)
+                LOGGER.exception(
+                    "gif_upload_failed file=%s size_mb=%.1f",
+                    path.name, size / (1024 * 1024),
+                )
                 continue
             if not sent.attachments:
                 continue
