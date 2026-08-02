@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from typing import Any
 
@@ -60,6 +61,9 @@ class GroqClient:
         request_id: str | None = None,
         label: str = "json",
     ) -> dict[str, Any]:
+        """Completion parsed as a dict. No Groq JSON mode — the strict schema
+        validation 400s on this model class, so we request JSON in the prompt
+        and parse leniently (fences, prose, nested braces)."""
         started = time.perf_counter()
         try:
             resp = await self._client.chat.completions.create(
@@ -67,7 +71,6 @@ class GroqClient:
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
-                response_format={"type": "json_object"},
             )
         except Exception:
             LOGGER.exception("[%s] groq_json_error label=%s", request_id or "-", label)
@@ -79,14 +82,14 @@ class GroqClient:
             request_id or "-", label,
             int((time.perf_counter() - started) * 1000),
         )
-        if not text:
+        data = _extract_json(text)
+        if data is None:
+            LOGGER.warning(
+                "[%s] groq_json_parse_failed label=%s text=%s",
+                request_id or "-", label, text[:160],
+            )
             return {}
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError:
-            LOGGER.warning("[%s] groq_json_parse_failed label=%s text=%s", request_id or "-", label, text[:120])
-            return {}
-        return data if isinstance(data, dict) else {}
+        return data
 
     async def complete_with_tools(
         self,
@@ -127,3 +130,31 @@ class GroqClient:
             len(text), int((time.perf_counter() - started) * 1000),
         )
         return text, None
+
+
+_FENCE = re.compile(r"^```(?:json)?\s*|\s*```$")
+_JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def _extract_json(text: str) -> dict[str, Any] | None:
+    """Lenient JSON-object extraction from a model reply."""
+    if not text:
+        return None
+    cleaned = _FENCE.sub("", text.strip())
+
+    def _parse(raw: str) -> dict[str, Any] | None:
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        return data if isinstance(data, dict) else None
+
+    data = _parse(cleaned)
+    if data is not None:
+        return data
+    m = _JSON_OBJECT.search(cleaned)
+    if m:
+        data = _parse(m.group(0))
+        if data is not None:
+            return data
+    return None
