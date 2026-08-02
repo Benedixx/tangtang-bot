@@ -50,7 +50,7 @@ class Gate:
                 data = await self._client.complete_json(
                     messages,
                     temperature=0.0,
-                    max_tokens=80,
+                    max_tokens=80 if attempt == 0 else 256,
                     request_id=request_id,
                     label="gate",
                 )

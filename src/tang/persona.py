@@ -116,6 +116,7 @@ def sanitize(text: str, trap_names: frozenset[str] = frozenset()) -> str:
     """Strip markdown, mass mentions, trap refs; drop banned-phrase replies."""
     if not text:
         return ""
+    text = text.replace("\x00", "")
     text = text.split("\n\n", 1)[0]
     text = _MD_FENCE.sub("", text)
     text = _MD_BOLD.sub("", text)

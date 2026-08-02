@@ -11,6 +11,11 @@ from openai.types.chat import ChatCompletionMessageToolCall
 
 LOGGER = logging.getLogger("tang.groq")
 
+# gpt-oss models produce reasoning tokens that count against max_tokens.
+# At the default effort the gate/responder budgets get eaten and content
+# comes back empty, so pin it low.
+REASONING_EFFORT = "low"
+
 
 class GroqClient:
     """Thin Groq chat completions wrapper: plain, JSON, and tool calling."""
@@ -23,6 +28,23 @@ class GroqClient:
         )
         self._model = model
 
+    @staticmethod
+    def _kwargs(
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int,
+        reasoning_effort: str | None,
+    ) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "model": None,  # set by caller
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if reasoning_effort:
+            kwargs["extra_body"] = {"reasoning_effort": reasoning_effort}
+        return kwargs
+
     async def complete(
         self,
         messages: list[dict[str, str]],
@@ -31,15 +53,13 @@ class GroqClient:
         max_tokens: int = 100,
         request_id: str | None = None,
         label: str = "complete",
+        reasoning_effort: str | None = REASONING_EFFORT,
     ) -> str:
         started = time.perf_counter()
+        kwargs = self._kwargs(messages, temperature, max_tokens, reasoning_effort)
+        kwargs["model"] = self._model
         try:
-            resp = await self._client.chat.completions.create(
-                model=self._model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
+            resp = await self._client.chat.completions.create(**kwargs)
         except Exception:
             LOGGER.exception("[%s] groq_error label=%s", request_id or "-", label)
             raise
@@ -60,18 +80,16 @@ class GroqClient:
         max_tokens: int = 80,
         request_id: str | None = None,
         label: str = "json",
+        reasoning_effort: str | None = REASONING_EFFORT,
     ) -> dict[str, Any]:
         """Completion parsed as a dict. No Groq JSON mode — the strict schema
         validation 400s on this model class, so we request JSON in the prompt
         and parse leniently (fences, prose, nested braces)."""
         started = time.perf_counter()
+        kwargs = self._kwargs(messages, temperature, max_tokens, reasoning_effort)
+        kwargs["model"] = self._model
         try:
-            resp = await self._client.chat.completions.create(
-                model=self._model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
+            resp = await self._client.chat.completions.create(**kwargs)
         except Exception:
             LOGGER.exception("[%s] groq_json_error label=%s", request_id or "-", label)
             raise
@@ -100,16 +118,14 @@ class GroqClient:
         max_tokens: int = 200,
         request_id: str | None = None,
         label: str = "tools",
+        reasoning_effort: str | None = REASONING_EFFORT,
     ) -> tuple[str | None, list[ChatCompletionMessageToolCall] | None]:
         started = time.perf_counter()
+        kwargs = self._kwargs(messages, temperature, max_tokens, reasoning_effort)
+        kwargs["model"] = self._model
+        kwargs["tools"] = tools
         try:
-            resp = await self._client.chat.completions.create(
-                model=self._model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                tools=tools,
-            )
+            resp = await self._client.chat.completions.create(**kwargs)
         except Exception:
             LOGGER.exception("[%s] groq_tools_error label=%s", request_id or "-", label)
             raise
