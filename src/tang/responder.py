@@ -81,7 +81,8 @@ class Responder:
         @self._agent.tool(retries=0)
         async def web_search(ctx: RunContext[ToolDeps], query: str) -> str:
             """Search the web for current information (news, prices, facts).
-            Summarize the returned snippets in your reply text."""
+            Results include URLs — when naming a source, cite only a URL from
+            the results, never invent one. Summarize the snippets in your reply."""
             return await search.execute(query, ctx.deps.request_id)
 
     async def run(self, job: Job, state: ChannelState, request_id: str) -> ResponderReply | None:

@@ -90,9 +90,12 @@ class WebSearchTool:
         for i, r in enumerate(results, 1):
             title = str(r.get("title", "")).replace("\n", " ").strip()
             body = str(r.get("body", "")).replace("\n", " ").strip()
+            url = str(r.get("href") or r.get("url") or "").strip()
             if len(body) > 220:
                 body = body[:217].rstrip() + "..."
             lines.append(f"{i}. {title}")
+            if url:
+                lines.append(f"   url: {url}")
             if body:
                 lines.append(f"   {body}")
         return "\n".join(lines)
