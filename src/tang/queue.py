@@ -35,6 +35,7 @@ class Job:
 @dataclass(slots=True)
 class Reply:
     text: str
+    gif: str = ""
     anchored: bool = False
 
 

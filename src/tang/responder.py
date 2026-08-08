@@ -1,108 +1,100 @@
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any
+from dataclasses import dataclass, field
+from enum import Enum
 
-from .groq import GroqClient
+from pydantic_ai import Agent, RunContext
+from pydantic_ai.models.groq import GroqModel
+from pydantic_ai.settings import ModelSettings
+
 from .persona import PersonaBuilder
 from .queue import ChannelState, Job
-from .tools.gifs import TOOL_NAME as GIF_NAME
+from .tools.gifs import GIF_TAGS, GifStore
+from .tools.search import WebSearchTool
 
 LOGGER = logging.getLogger("tang.responder")
 
-MAX_TOOL_ROUNDS = 2
 HISTORY_OPEN = "[untrusted conversation]"
 HISTORY_CLOSE = "[/untrusted]"
 
+GifTag = Enum("GifTag", {t: t for t in GIF_TAGS}, type=str)
+
+
+@dataclass(slots=True)
+class ResponderReply:
+    text: str
+    gif: str = ""
+
+
+@dataclass(slots=True)
+class ToolDeps:
+    state: ChannelState
+    request_id: str
+    gif_url: str = ""
+
 
 class Responder:
-    """Tool loop + final reply via the responder model."""
+    """Pydantic-AI agent: web search + gif tools.
+
+    Output is plain text; the gif URL is captured as a tool side-effect on
+    ToolDeps so the model never has to echo it (gpt-oss + Groq's native JSON
+    output parsing 400s when it tries).
+    """
 
     def __init__(
         self,
-        client: GroqClient,
+        api_key: str,
+        model: str,
         persona: PersonaBuilder,
-        schemas: list[dict[str, Any]],
-        executors: dict[str, Any],
+        gif_store: GifStore,
+        search: WebSearchTool,
     ) -> None:
-        self._client = client
-        self._persona = persona
-        self._schemas = schemas
-        self._executors = executors
+        groq_model = GroqModel(model, settings=ModelSettings(
+            temperature=0.9,
+            max_tokens=300,
+            thinking="minimal",
+            timeout=30,
+        ))
+        self._agent = Agent(
+            groq_model,
+            system_prompt=persona.system_prompt(),
+            deps_type=ToolDeps,
+            retries=1,
+        )
 
-    async def run(self, job: Job, state: ChannelState, request_id: str) -> str | None:
+        @self._agent.tool(retries=0)
+        async def send_gif(ctx: RunContext[ToolDeps], tag: GifTag) -> str:
+            """Send a reaction GIF. Use when a GIF fits the moment better than
+            words. The gif goes out on its own — no need to describe it."""
+            tag_value = tag.value if isinstance(tag, GifTag) else str(tag)
+            url = await gif_store.send(
+                tag_value,
+                list(ctx.deps.state.recent_gifs),
+                ctx.deps.request_id,
+            )
+            if not url:
+                return "no gif available for that tag"
+            ctx.deps.gif_url = url
+            return "udah kekirim"
+
+        @self._agent.tool(retries=0)
+        async def web_search(ctx: RunContext[ToolDeps], query: str) -> str:
+            """Search the web for current information (news, prices, facts).
+            Summarize the returned snippets in your reply text."""
+            return await search.execute(query, ctx.deps.request_id)
+
+    async def run(self, job: Job, state: ChannelState, request_id: str) -> ResponderReply | None:
         lines = [f"{m.author_name}: {m.content}" for m in job.snapshot]
         LOGGER.info(
             "[%s] respond_context msgs=%s chars=%s",
             request_id, len(job.snapshot), sum(len(l) for l in lines),
         )
         history = f"{HISTORY_OPEN}\n" + "\n".join(lines) + f"\n{HISTORY_CLOSE}"
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": self._persona.system_prompt()},
-            {"role": "user", "content": history},
-        ]
-
+        deps = ToolDeps(state, request_id)
         try:
-            for rnd in range(MAX_TOOL_ROUNDS):
-                text, tool_calls = await self._client.complete_with_tools(
-                    messages,
-                    self._schemas,
-                    temperature=0.9,
-                    max_tokens=200 if rnd else 100,
-                    request_id=request_id,
-                    label=f"respond:r{rnd}",
-                )
-                if not tool_calls:
-                    return text
-
-                messages.append({
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": [
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.function.name,
-                                "arguments": tc.function.arguments,
-                            },
-                        }
-                        for tc in tool_calls
-                    ],
-                })
-                for tc in tool_calls:
-                    name = tc.function.name
-                    try:
-                        args = json.loads(tc.function.arguments or "{}")
-                    except json.JSONDecodeError:
-                        args = {}
-                    executor = self._executors.get(name)
-                    if executor is None:
-                        result = f"unknown tool: {name}"
-                    else:
-                        try:
-                            result = await executor(state, request_id=request_id, **args)
-                        except Exception as exc:
-                            result = f"tool error: {exc}"
-                            LOGGER.exception("[%s] tool_error name=%s", request_id, name)
-                    if name == GIF_NAME and result:
-                        return result
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": str(result)[:1500],
-                    })
-
-            text, _ = await self._client.complete_with_tools(
-                messages,
-                self._schemas,
-                temperature=0.9,
-                max_tokens=200,
-                request_id=request_id,
-                label="respond:final",
-            )
-            return text
+            result = await self._agent.run(history, deps=deps)
         except Exception:
             LOGGER.exception("[%s] responder_failed", request_id)
             return None
+        return ResponderReply(result.output, deps.gif_url)

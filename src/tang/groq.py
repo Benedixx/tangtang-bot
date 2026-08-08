@@ -45,33 +45,6 @@ class GroqClient:
             kwargs["extra_body"] = {"reasoning_effort": reasoning_effort}
         return kwargs
 
-    async def complete(
-        self,
-        messages: list[dict[str, str]],
-        *,
-        temperature: float = 0.0,
-        max_tokens: int = 100,
-        request_id: str | None = None,
-        label: str = "complete",
-        reasoning_effort: str | None = REASONING_EFFORT,
-    ) -> str:
-        started = time.perf_counter()
-        kwargs = self._kwargs(messages, temperature, max_tokens, reasoning_effort)
-        kwargs["model"] = self._model
-        try:
-            resp = await self._client.chat.completions.create(**kwargs)
-        except Exception:
-            LOGGER.exception("[%s] groq_error label=%s", request_id or "-", label)
-            raise
-
-        text = (resp.choices[0].message.content or "").strip() if resp.choices else ""
-        LOGGER.info(
-            "[%s] groq_done label=%s ms=%s chars=%s",
-            request_id or "-", label,
-            int((time.perf_counter() - started) * 1000), len(text),
-        )
-        return text
-
     async def complete_json(
         self,
         messages: list[dict[str, str]],
@@ -108,44 +81,6 @@ class GroqClient:
             )
             return {}
         return data
-
-    async def complete_with_tools(
-        self,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]],
-        *,
-        temperature: float = 0.1,
-        max_tokens: int = 200,
-        request_id: str | None = None,
-        label: str = "tools",
-        reasoning_effort: str | None = REASONING_EFFORT,
-    ) -> tuple[str | None, list[ChatCompletionMessageToolCall] | None]:
-        started = time.perf_counter()
-        kwargs = self._kwargs(messages, temperature, max_tokens, reasoning_effort)
-        kwargs["model"] = self._model
-        kwargs["tools"] = tools
-        try:
-            resp = await self._client.chat.completions.create(**kwargs)
-        except Exception:
-            LOGGER.exception("[%s] groq_tools_error label=%s", request_id or "-", label)
-            raise
-
-        if not resp.choices:
-            return "", None
-        msg = resp.choices[0].message
-        if msg.tool_calls:
-            LOGGER.info(
-                "[%s] groq_tool_calls label=%s count=%s",
-                request_id or "-", label, len(msg.tool_calls),
-            )
-            return None, list(msg.tool_calls)
-        text = (msg.content or "").strip()
-        LOGGER.info(
-            "[%s] groq_tools_done label=%s chars=%s ms=%s",
-            request_id or "-", label,
-            len(text), int((time.perf_counter() - started) * 1000),
-        )
-        return text, None
 
 
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$")

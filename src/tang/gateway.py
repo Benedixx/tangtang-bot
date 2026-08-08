@@ -14,7 +14,6 @@ from .guard import Guard
 from .persona import PersonaBuilder, sanitize
 from .queue import ChannelRegistry, Msg, Reply
 from .responder import Responder
-from .tools import build_registry
 from .tools.gifs import GifStore
 from .tools.search import WebSearchTool
 from .trap import TrapGuard
@@ -40,15 +39,17 @@ class Gateway(discord.Client):
             debounce_s=config.chat.debounce_s,
         )
         self.gate_groq = GroqClient(config.groq_api_key, config.models.gate)
-        self.responder_groq = GroqClient(config.groq_api_key, config.models.responder)
         self.gate = Gate(self.gate_groq, config.chat)
         self.guard = Guard()
         self.persona = PersonaBuilder(config)
         self.gif_store = GifStore(config.gif.dir, config.gif.manifest)
         self.search = WebSearchTool()
-        self._schemas, self._executors = build_registry(self.gif_store, self.search)
         self.responder = Responder(
-            self.responder_groq, self.persona, self._schemas, self._executors
+            config.groq_api_key,
+            config.models.responder,
+            self.persona,
+            self.gif_store,
+            self.search,
         )
 
         self._allowed = frozenset(config.chat.allowed_channels)
@@ -152,15 +153,18 @@ class Gateway(discord.Client):
         if not await self.gate.decide(job, state, time.time(), request_id):
             return None
 
-        text = await self.responder.run(job, state, request_id)
-        if not text:
+        result = await self.responder.run(job, state, request_id)
+        if result is None:
             return None
 
-        reply_text = sanitize(text, self._trap_names)
-        if not reply_text:
+        reply_text = sanitize(result.text, self._trap_names)
+        gif = (result.gif or "").strip()
+        if gif and gif in reply_text:
+            reply_text = reply_text.replace(gif, "").strip()
+        if not reply_text and not gif:
             return None
 
-        return Reply(text=reply_text)
+        return Reply(text=reply_text, gif=gif)
 
     async def deliver(self, job, reply: Reply) -> None:
         channel = self.get_channel(job.channel_id)
@@ -168,19 +172,23 @@ class Gateway(discord.Client):
             return
         state = self.registry.get(job.channel_id)
 
+        content = reply.text
+        if reply.gif:
+            content = f"{reply.text}\n{reply.gif}" if reply.text else reply.gif
+
         try:
             if reply.anchored:
                 ref = channel.get_partial_message(job.trigger_message_id)
-                sent = await channel.send(reply.text, reference=ref)
+                sent = await channel.send(content, reference=ref)
             else:
-                sent = await channel.send(reply.text)
+                sent = await channel.send(content)
         except discord.HTTPException:
             LOGGER.exception("send_failed channel=%s", job.channel_id)
             return
 
         state.last_reply_ts = time.time()
-        if self.gif_store.contains(reply.text):
-            state.recent_gifs.append(reply.text)
+        if reply.gif and self.gif_store.contains(reply.gif):
+            state.recent_gifs.append(reply.gif)
 
         self.registry.append(job.channel_id, Msg(
             message_id=sent.id,
