@@ -47,26 +47,54 @@ class WebSearchTool:
 
     def _search_sync(self, query: str) -> list[dict[str, Any]]:
         attempts = 0
+
         while True:
             try:
-                ddgs = DDGS()
-                return list(ddgs.text(
-                    query,
-                    max_results=self._max_results,
-                    region="id-ID",
-                    engine=random.choice(["google", "bing", "brave", "grokipedia"]),
-                ))
-            except RatelimitException:
+                ddgs = DDGS(timeout=10)
+
+                return list(
+                    ddgs.text(
+                        query,
+                        max_results=self._max_results,
+                        region="id-ID",
+                        backend="google",
+                    )
+                )
+
+            except RatelimitException as exc:
                 attempts += 1
+
                 if attempts > 3:
-                    LOGGER.warning("search_ratelimit_exhausted query=%s", query)
+                    LOGGER.warning(
+                        "search_ratelimit_exhausted query=%s error=%r",
+                        query,
+                        exc,
+                    )
                     return []
-                wait = min(MAX_BACKOFF_S, (2**attempts) + random.uniform(0, 1))
-                LOGGER.warning("search_ratelimited query=%s attempt=%s waiting=%.1fs", query, attempts, wait)
+
+                wait = min(
+                    MAX_BACKOFF_S,
+                    (2**attempts) + random.uniform(0, 1),
+                )
+
+                LOGGER.warning(
+                    "search_ratelimited query=%s attempt=%s "
+                    "waiting=%.1fs error=%r",
+                    query,
+                    attempts,
+                    wait,
+                    exc,
+                )
+
                 time.sleep(wait)
-                continue
+
             except Exception as exc:
-                LOGGER.warning("search_failed query=%s err=%s", query, exc)
+                LOGGER.warning(
+                    "search_failed query=%s type=%s error=%r",
+                    query,
+                    type(exc).__name__,
+                    exc,
+                )
                 return []
 
     @staticmethod
@@ -84,3 +112,20 @@ class WebSearchTool:
             if body:
                 lines.append(f"   {body}")
         return "\n".join(lines)
+
+
+# test until get rate limit
+if __name__ == "__main__":
+    async def main() -> None:
+        tool = WebSearchTool()
+        for i in range(30):
+            try:
+                text = await tool.execute(f"apa {i}itu {i}deepseek AI {i}")
+                print(text)
+                print("-" * 80)
+            except Exception:
+                LOGGER.exception("search_test_failed iteration=%s", i)
+                break
+        print("not rate limited, test done")
+
+    asyncio.run(main())
