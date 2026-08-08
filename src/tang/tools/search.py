@@ -6,27 +6,14 @@ import random
 import time
 from typing import Any
 
+from ddgs import DDGS
+from ddgs.exceptions import RatelimitException
+
 LOGGER = logging.getLogger("tang.tools.search")
 
-TOOL_NAME = "web_search"
 MAX_RESULTS = 4
 CACHE_TTL_S = 1800.0
 MAX_BACKOFF_S = 30.0
-
-TOOL_SCHEMA: dict[str, Any] = {
-    "type": "function",
-    "function": {
-        "name": TOOL_NAME,
-        "description": "Search the web for current information (news, prices, facts, docs). Returns short snippets only.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Concise search query"},
-            },
-            "required": ["query"],
-        },
-    },
-}
 
 
 class WebSearchTool:
@@ -59,18 +46,16 @@ class WebSearchTool:
         return text
 
     def _search_sync(self, query: str) -> list[dict[str, Any]]:
-        try:
-            from ddgs import DDGS
-            from ddgs.exceptions import RatelimitException
-        except Exception:
-            LOGGER.exception("ddgs_import_failed")
-            return []
-
         attempts = 0
         while True:
             try:
-                with DDGS() as ddgs:
-                    return list(ddgs.text(query, max_results=self._max_results))
+                ddgs = DDGS()
+                return list(ddgs.text(
+                    query,
+                    max_results=self._max_results,
+                    region="id-ID",
+                    engine=random.choice(["google", "bing", "brave", "grokipedia"]),
+                ))
             except RatelimitException:
                 attempts += 1
                 if attempts > 3:

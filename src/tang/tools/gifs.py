@@ -11,8 +11,6 @@ from rapidfuzz import fuzz
 
 LOGGER = logging.getLogger("tang.tools.gif")
 
-TOOL_NAME = "send_gif"
-
 # Discord's free-server attachment limit is ~10 MB; files right at the
 # boundary 413 unpredictably, and big GIFs are pointless as reactions anyway.
 MAX_FILE_BYTES = 10 * 1024 * 1024
@@ -50,26 +48,6 @@ _TAG_MAP: dict[str, list[str]] = {
     "here-take-this": ["nope", "shrug"],
     "who-is-this-kid": ["confused", "surprised", "thinking"],
 }
-
-TOOL_SCHEMA: dict[str, Any] = {
-    "type": "function",
-    "function": {
-        "name": TOOL_NAME,
-        "description": "Send a GIF reaction. Use when a GIF fits the moment better than words.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "tag": {
-                    "type": "string",
-                    "enum": GIF_TAGS,
-                    "description": "The reaction tag",
-                },
-            },
-            "required": ["tag"],
-        },
-    },
-}
-
 
 class GifStore:
     """Local GIF store. Uploads files once to a staging channel, keeps a manifest."""
