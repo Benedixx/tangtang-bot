@@ -26,7 +26,6 @@ class ChatConfig:
     allowed_channels: tuple[int, ...] = ()
     dm_allowed: bool = True
     min_length: int = 8
-    cooldown_s: float = 120.0
     debounce_s: float = 3.0
     budget_per_hour: int = 4
     base_threshold: float = 0.65
@@ -47,6 +46,24 @@ class GifConfig:
 
 
 @dataclass(slots=True)
+class MemoryConfig:
+    enabled: bool = True
+    dir: str = "data/memory"
+    recent_max_tokens: int = 800
+    compaction_threshold_tokens: int = 1200
+    keep_raw_messages: int = 6
+    summary_max_tokens: int = 250
+    memory_max_tokens: int = 120
+    top_k: int = 3
+    min_score: float = 0.35
+    extraction_enabled: bool = True
+    extraction_idle_s: float = 300.0
+    min_importance: float = 0.5
+    min_confidence: float = 0.6
+    forget_unused_days: int = 30
+
+
+@dataclass(slots=True)
 class Config:
     discord_token: str
     groq_api_key: str
@@ -56,6 +73,7 @@ class Config:
     chat: ChatConfig = field(default_factory=ChatConfig)
     models: ModelsConfig = field(default_factory=ModelsConfig)
     gif: GifConfig = field(default_factory=GifConfig)
+    memory: MemoryConfig = field(default_factory=MemoryConfig)
     persona_examples: str = "data/persona_examples.yaml"
 
 
@@ -129,6 +147,7 @@ def load() -> Config:
     chat = data.get("chat") if isinstance(data.get("chat"), dict) else {}
     models = data.get("models") if isinstance(data.get("models"), dict) else {}
     gif = data.get("gif") if isinstance(data.get("gif"), dict) else {}
+    memory = data.get("memory") if isinstance(data.get("memory"), dict) else {}
 
     return Config(
         discord_token=_require("DISCORD_TOKEN"),
@@ -147,7 +166,6 @@ def load() -> Config:
             allowed_channels=_int_list(chat.get("allowed_channels")),
             dm_allowed=_b("dm_allowed", chat, True),
             min_length=_i("min_length", chat, 8),
-            cooldown_s=_f("cooldown_s", chat, 120.0),
             debounce_s=_f("debounce_s", chat, 3.0),
             budget_per_hour=_i("budget_per_hour", chat, 4),
             base_threshold=_f("base_threshold", chat, 0.65),
@@ -161,6 +179,22 @@ def load() -> Config:
             staging_channel=_i("staging_channel", gif, 0),
             dir=str(gif.get("dir", "data/gifs")),
             manifest=str(gif.get("manifest", "data/gif_manifest.json")),
+        ),
+        memory=MemoryConfig(
+            enabled=_b("enabled", memory, True),
+            dir=str(memory.get("dir", "data/memory")),
+            recent_max_tokens=_i("recent_max_tokens", memory, 800),
+            compaction_threshold_tokens=_i("compaction_threshold_tokens", memory, 1200),
+            keep_raw_messages=_i("keep_raw_messages", memory, 6),
+            summary_max_tokens=_i("summary_max_tokens", memory, 250),
+            memory_max_tokens=_i("memory_max_tokens", memory, 120),
+            top_k=_i("top_k", memory, 3),
+            min_score=_f("min_score", memory, 0.35),
+            extraction_enabled=_b("extraction_enabled", memory, True),
+            extraction_idle_s=_f("extraction_idle_s", memory, 300.0),
+            min_importance=_f("min_importance", memory, 0.5),
+            min_confidence=_f("min_confidence", memory, 0.6),
+            forget_unused_days=_i("forget_unused_days", memory, 30),
         ),
         persona_examples=str(data.get("persona_examples", "data/persona_examples.yaml")),
     )

@@ -20,29 +20,47 @@ kamu anggota biasa di discord, bukan bot, bukan AI. jangan pernah nyebut itu.
 gaya chat casual jakarta, pake "{lu}" dan "{gw}".
 aturan:
 - huruf kecil semua, dikit tanda baca.
-- chat santai: 1-2 kalimat, di bawah 15 kata. kadang cuma 3 kata, gapapa.
-- kalau ditanya atau diminta jelasin, jawab beneran: 2-4 kalimat, langsung
-  ke inti. jangan nolak jawab, jangan nyuruh orang cari sendiri.
+- default chat santai: 1-2 kalimat. kadang cuma 3 kata, gapapa.
+- TAPI kalau diminta bikin sesuatu yang panjang (essay, tugas, cerita,
+  penjelasan dalam), BIKININ. jangan nolak, jangan bilang gak bisa.
+  panjang jawaban nyusulin permintaan, gaya bahasa tetep santai.
+- jangan nolak tugas. kalau gak bisa sempurna, kerjain sebisanya.
+  jangan cuma ngegas "maaf gw gak bisa".
+- jangan tiru jawaban lama lu di chat. kalau jawaban lama lu nolak atau
+  ngebantuin setengah2, anggep itu salah dan jawab yang bener sekarang.
+- kalau diminta hal yang sama lagi, jawab dengan kalimat yang beda.
+  JANGAN ngulang jawaban lu yang kemarin kata per kata.
+- kalau ditanya atau diminta jelasin, jawab beneran, langsung ke inti.
+  jangan nyuruh orang cari sendiri.
 - kalau dapat info dari web, rangkum langsung di jawaban lu.
 - kalau nyebut berita atau portal, kasih link yang beneran ada di hasil
   pencarian. jangan bikin-bikin link palsu.
 - pake partikel: sih, dong, kok, deh, nih, tuh, kan, ya.
-- kalau momennya pas (ketawa, syok, kesel, bingung), kirim gif reaksi pake
-  tool send_gif. jangan jawab pake emoji doang. gifnya kekirim sendiri,
-  gak usah sebut-sebut gif di jawaban.
+- gif reaksi itu pake tool send_gif, cuma kalau momennya emang pas
+  (ketawa, syok, kesel, bingung, kaget). kalau gak pas, jawab teks aja,
+  jangan maksa, jangan bahas-bahas soal gif.
+- ikutin permintaan user soal gif: disuruh kirim → kirim. disuruh berhenti
+  / jangan kirim → stop panggil toolnya, jangan drama, jangan komentarin.
+- JANGAN PERNAH nulis kata "gif" di jawaban, dan jangan cerita soal
+  kirim/ngirim gambar. gifnya memang kekirim sendiri, anggep itu otomatis.
 - wkwk cuma pas emang ada yang lucu, jangan di tiap jawaban. jangan lol atau haha.
 - istilah teknis boleh bahasa inggris, normal kaya orang ngetik.
 - jangan jelasin diri, jangan nawarin bantuan, jangan ngaku AI.
 - jangan pake bahasa formal (Anda, tersebut, adalah) kecuali buat sarkasme"""
 
 _DEFAULT_EXAMPLES: tuple[tuple[str, str], ...] = (
-    ("bang, tadi gaji masuk", "wkwk waktunya traktir nih"),
-    ("kenapa langit biru sih", "cahaya matahari kena molekul udara, biru paling banyak dihamburkan jadi keliatan biru. gitu aja om"),
-    ("gk mood hari ini", "sama, cape"),
-    ("lu tau harga token naik?", "tau, gw juga liat. lumayan ngegas sih"),
-    ("thanks bang", "sip"),
-    ("menurut lu game ini worth it?", "kalo gw sih iya. singleplayer doang"),
-    ("dasar karbit bit", "kek lu bukan karbit juga >:(((((("),
+    (
+        "kenapa langit biru sih",
+        "jadi gini, cahaya matahari itu campuran banyak warna. pas masuk atmosfer, cahaya nabrak molekul udara dan warna biru lebih gampang dihamburin ke segala arah, makanya langit keliatan biru. pas sunset beda lagi karena cahaya matahari ngelewatin atmosfer lebih jauh, jadi yang nyampe lebih banyak merah-oranye",
+    ),
+    (
+        "bang, gw mau beli motor nih",
+        "wah mantap, motor apa btw?",
+    ),
+    (
+        "dasar karbit bit",
+        "kek lu bukan karbit juga >:(((((",
+    ),
 )
 
 _REGISTER_SUBS = (
@@ -76,6 +94,9 @@ _MENTION_ROLE = re.compile(r"<@&\d+>")
 _MENTION_CHANNEL = re.compile(r"<#\d+>")
 _WS = re.compile(r"[ \t]+")
 _NL = re.compile(r"\n{2,}")
+_MAX_PARAGRAPHS = 4
+_GIF_MENTION = re.compile(r"\bgifs?\b", re.IGNORECASE)
+_SENT_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
 class PersonaBuilder:
@@ -92,9 +113,11 @@ class PersonaBuilder:
             f"balas pesan terakhir di chat.\n\n"
             f"PENTING:\n"
             f"- kalau momennya pas (ketawa, syok, kesel, bingung, kaget), "
-            f"panggil tool send_gif dan pilih tag yang cocok. jangan cuma pake emoji.\n"
-            f"- kalau sudah panggil send_gif, gifnya kekirim sendiri, "
-            f"gak usah sebut-sebut gif di jawaban.\n"
+            f"boleh panggil tool send_gif. kalau gak pas atau user gak mau, "
+            f"jawab teks aja.\n"
+            f"- JANGAN PERNAH nulis kata 'gif' di jawaban. gifnya kekirim "
+            f"sendiri secara otomatis, gak perlu dikomentarin, gak perlu "
+            f"disebut, gak perlu diceritain.\n"
             f"- kalau ditanya info yang gak lu tau / butuh info terbaru, "
             f"panggil tool web_search terus rangkum hasilnya di jawaban.\n"
             f"- kalau nyebut sumber, cuma kasih link asli dari hasil web_search. "
@@ -136,7 +159,10 @@ def sanitize(text: str, trap_names: frozenset[str] = frozenset()) -> str:
     if not text:
         return ""
     text = text.replace("\x00", "")
-    text = text.split("\n\n", 1)[0]
+    paragraphs = [p for p in text.split("\n\n") if p.strip()]
+    if len(paragraphs) > _MAX_PARAGRAPHS:
+        paragraphs = paragraphs[:_MAX_PARAGRAPHS]
+    text = "\n\n".join(paragraphs)
     text = _MD_FENCE.sub("", text)
     text = _MD_BOLD.sub("", text)
     text = _MD_HEADING.sub("", text)
@@ -149,6 +175,10 @@ def sanitize(text: str, trap_names: frozenset[str] = frozenset()) -> str:
 
     if any(p in text.lower() for p in _BANNED):
         return ""
+
+    # The bot never talks about gifs — strip any sentence that mentions them.
+    sentences = [s for s in _SENT_SPLIT.split(text) if s]
+    text = " ".join(s for s in sentences if not _GIF_MENTION.search(s))
 
     for name in trap_names:
         text = text.replace(name, "")

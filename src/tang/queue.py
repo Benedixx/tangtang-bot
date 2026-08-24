@@ -21,6 +21,7 @@ class Msg:
     author_name: str
     content: str
     is_bot: bool = False
+    guild_id: int | None = None
 
 
 @dataclass(slots=True)
@@ -30,6 +31,7 @@ class Job:
     counter_at_enqueue: int
     forced: bool
     trigger_message_id: int
+    trigger_author_id: int = 0
 
 
 @dataclass(slots=True)
@@ -117,12 +119,18 @@ class ChannelRegistry:
         forced: bool,
         trigger_message_id: int,
     ) -> Job:
+        trigger_author_id = 0
+        for msg in reversed(state.buffer):
+            if msg.message_id == trigger_message_id:
+                trigger_author_id = msg.author_id
+                break
         return Job(
             channel_id=channel_id,
             snapshot=list(state.buffer),
             counter_at_enqueue=state.counter,
             forced=forced,
             trigger_message_id=trigger_message_id,
+            trigger_author_id=trigger_author_id,
         )
 
     @staticmethod

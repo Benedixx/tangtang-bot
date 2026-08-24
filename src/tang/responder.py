@@ -8,6 +8,17 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.groq import GroqModel
 from pydantic_ai.settings import ModelSettings
 
+from .config import MemoryConfig
+from .memory.compaction import (
+    ContextBudget,
+    build_context,
+    render_lines,
+    render_memory_block,
+    render_summary_block,
+    trim_lines,
+)
+from .memory.models import RetrievedMemory, SessionSummary
+from .memory.tokens import count_tokens
 from .persona import PersonaBuilder
 from .queue import ChannelState, Job
 from .tools.gifs import GIF_TAGS, GifStore
@@ -49,10 +60,12 @@ class Responder:
         persona: PersonaBuilder,
         gif_store: GifStore,
         search: WebSearchTool,
+        memory_cfg: MemoryConfig | None = None,
     ) -> None:
+        self._memory_cfg = memory_cfg or MemoryConfig()
         groq_model = GroqModel(model, settings=ModelSettings(
             temperature=0.9,
-            max_tokens=300,
+            max_tokens=700,
             thinking="minimal",
             timeout=30,
         ))
@@ -85,16 +98,41 @@ class Responder:
             the results, never invent one. Summarize the snippets in your reply."""
             return await search.execute(query, ctx.deps.request_id)
 
-    async def run(self, job: Job, state: ChannelState, request_id: str) -> ResponderReply | None:
-        lines = [f"{m.author_name}: {m.content}" for m in job.snapshot]
-        LOGGER.info(
-            "[%s] respond_context msgs=%s chars=%s",
-            request_id, len(job.snapshot), sum(len(l) for l in lines),
+    async def run(
+        self,
+        job: Job,
+        state: ChannelState,
+        request_id: str,
+        session=None,
+        memories: list[RetrievedMemory] | None = None,
+    ) -> ResponderReply | None:
+        cfg = self._memory_cfg
+        summarized = session.summarized_ids if session is not None else set()
+        lines = render_lines(job.snapshot, summarized)
+        lines = trim_lines(lines, cfg.recent_max_tokens)
+        summary: SessionSummary | None = session.summary if session is not None else None
+        memory_block = render_memory_block(memories or [])
+        if memory_block:
+            # Hard cap on injected memory tokens: drop lowest-scored first.
+            while count_tokens(memory_block) > cfg.memory_max_tokens and len(memories) > 1:
+                memories = sorted(memories, key=lambda r: r.score)[:-1] or None
+                memory_block = render_memory_block(memories or [])
+        context, budget = build_context(
+            lines,
+            render_summary_block(summary, cfg.summary_max_tokens),
+            memory_block,
+            HISTORY_OPEN,
+            HISTORY_CLOSE,
         )
-        history = f"{HISTORY_OPEN}\n" + "\n".join(lines) + f"\n{HISTORY_CLOSE}"
+        LOGGER.info(
+            "[%s] respond_context msgs=%s mem=%s tok=%s (mem=%s sum=%s raw=%s)",
+            request_id, len(lines), len(memories or []),
+            budget.total_tokens, budget.memory_tokens,
+            budget.summary_tokens, budget.raw_tokens,
+        )
         deps = ToolDeps(state, request_id)
         try:
-            result = await self._agent.run(history, deps=deps)
+            result = await self._agent.run(context, deps=deps)
         except Exception:
             LOGGER.exception("[%s] responder_failed", request_id)
             return None
