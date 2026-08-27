@@ -48,19 +48,16 @@ class GifConfig:
 @dataclass(slots=True)
 class MemoryConfig:
     enabled: bool = True
-    dir: str = "data/memory"
-    recent_max_tokens: int = 800
-    compaction_threshold_tokens: int = 1200
-    keep_raw_messages: int = 6
+    data_dir: str = "./data"
+    buffer_max_turns: int = 25
+    buffer_max_tokens: int = 4000
     summary_max_tokens: int = 250
-    memory_max_tokens: int = 120
-    top_k: int = 3
-    min_score: float = 0.35
-    extraction_enabled: bool = True
-    extraction_idle_s: float = 300.0
-    min_importance: float = 0.5
-    min_confidence: float = 0.6
-    forget_unused_days: int = 30
+    fact_extraction_idle_minutes: float = 10.0
+    fact_extraction_min_messages: int = 5
+    fact_ttl_days: int = 180
+    fact_similarity_threshold: float = 0.85
+    fact_top_k: int = 3
+    fact_min_score: float = 0.35
 
 
 @dataclass(slots=True)
@@ -182,19 +179,16 @@ def load() -> Config:
         ),
         memory=MemoryConfig(
             enabled=_b("enabled", memory, True),
-            dir=str(memory.get("dir", "data/memory")),
-            recent_max_tokens=_i("recent_max_tokens", memory, 800),
-            compaction_threshold_tokens=_i("compaction_threshold_tokens", memory, 1200),
-            keep_raw_messages=_i("keep_raw_messages", memory, 6),
+            data_dir=str(memory.get("data_dir", "./data")),
+            buffer_max_turns=_i("buffer_max_turns", memory, 25),
+            buffer_max_tokens=_i("buffer_max_tokens", memory, 4000),
             summary_max_tokens=_i("summary_max_tokens", memory, 250),
-            memory_max_tokens=_i("memory_max_tokens", memory, 120),
-            top_k=_i("top_k", memory, 3),
-            min_score=_f("min_score", memory, 0.35),
-            extraction_enabled=_b("extraction_enabled", memory, True),
-            extraction_idle_s=_f("extraction_idle_s", memory, 300.0),
-            min_importance=_f("min_importance", memory, 0.5),
-            min_confidence=_f("min_confidence", memory, 0.6),
-            forget_unused_days=_i("forget_unused_days", memory, 30),
+            fact_extraction_idle_minutes=_f("fact_extraction_idle_minutes", memory, 10.0),
+            fact_extraction_min_messages=_i("fact_extraction_min_messages", memory, 5),
+            fact_ttl_days=_i("fact_ttl_days", memory, 180),
+            fact_similarity_threshold=_f("fact_similarity_threshold", memory, 0.85),
+            fact_top_k=_i("fact_top_k", memory, 3),
+            fact_min_score=_f("fact_min_score", memory, 0.35),
         ),
         persona_examples=str(data.get("persona_examples", "data/persona_examples.yaml")),
     )

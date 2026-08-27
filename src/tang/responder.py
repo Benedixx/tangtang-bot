@@ -9,25 +9,16 @@ from pydantic_ai.models.groq import GroqModel
 from pydantic_ai.settings import ModelSettings
 
 from .config import MemoryConfig
-from .memory.compaction import (
-    ContextBudget,
-    build_context,
-    render_lines,
-    render_memory_block,
-    render_summary_block,
-    trim_lines,
-)
-from .memory.models import RetrievedMemory, SessionSummary
-from .memory.tokens import count_tokens
+from .context.assembler import assemble_prompt
+from .context.long_term import LongTermMemory
+from .context.short_term import ShortTermBuffer
 from .persona import PersonaBuilder
 from .queue import ChannelState, Job
+from .storage.json_store import JsonStore
 from .tools.gifs import GIF_TAGS, GifStore
 from .tools.search import WebSearchTool
 
 LOGGER = logging.getLogger("tang.responder")
-
-HISTORY_OPEN = "[untrusted conversation]"
-HISTORY_CLOSE = "[/untrusted]"
 
 GifTag = Enum("GifTag", {t: t for t in GIF_TAGS}, type=str)
 
@@ -49,8 +40,7 @@ class Responder:
     """Pydantic-AI agent: web search + gif tools.
 
     Output is plain text; the gif URL is captured as a tool side-effect on
-    ToolDeps so the model never has to echo it (gpt-oss + Groq's native JSON
-    output parsing 400s when it tries).
+    ToolDeps so the model never has to echo it.
     """
 
     def __init__(
@@ -60,9 +50,13 @@ class Responder:
         persona: PersonaBuilder,
         gif_store: GifStore,
         search: WebSearchTool,
+        store: JsonStore,
         memory_cfg: MemoryConfig | None = None,
     ) -> None:
         self._memory_cfg = memory_cfg or MemoryConfig()
+        self._buffer = ShortTermBuffer(store)
+        self._store = store
+
         groq_model = GroqModel(model, settings=ModelSettings(
             temperature=0.9,
             max_tokens=700,
@@ -103,33 +97,34 @@ class Responder:
         job: Job,
         state: ChannelState,
         request_id: str,
-        session=None,
-        memories: list[RetrievedMemory] | None = None,
+        channel_id: int | None = None,
+        memories: list[dict] | None = None,
     ) -> ResponderReply | None:
         cfg = self._memory_cfg
-        summarized = session.summarized_ids if session is not None else set()
-        lines = render_lines(job.snapshot, summarized)
-        lines = trim_lines(lines, cfg.recent_max_tokens)
-        summary: SessionSummary | None = session.summary if session is not None else None
-        memory_block = render_memory_block(memories or [])
-        if memory_block:
-            # Hard cap on injected memory tokens: drop lowest-scored first.
-            while count_tokens(memory_block) > cfg.memory_max_tokens and len(memories) > 1:
-                memories = sorted(memories, key=lambda r: r.score)[:-1] or None
-                memory_block = render_memory_block(memories or [])
-        context, budget = build_context(
-            lines,
-            render_summary_block(summary, cfg.summary_max_tokens),
-            memory_block,
-            HISTORY_OPEN,
-            HISTORY_CLOSE,
+
+        # Read buffer turns from JSON
+        turns = self._buffer.read(channel_id) if channel_id else []
+
+        # Read summary from JSON
+        from .context.summarizer import Summarizer
+        summarizer = Summarizer(self._store, None)
+        summary_text = summarizer.read(channel_id) if channel_id else None
+
+        # Assemble prompt
+        context, budget = assemble_prompt(
+            turns,
+            summary_text=summary_text,
+            facts=memories,
+            recent_max_tokens=cfg.buffer_max_tokens,
+            summary_max_tokens=cfg.summary_max_tokens,
         )
+
         LOGGER.info(
-            "[%s] respond_context msgs=%s mem=%s tok=%s (mem=%s sum=%s raw=%s)",
-            request_id, len(lines), len(memories or []),
-            budget.total_tokens, budget.memory_tokens,
-            budget.summary_tokens, budget.raw_tokens,
+            "[%s] respond_context turns=%s mem=%s tok=%s",
+            request_id, len(turns), len(memories or []),
+            budget.get("total", 0),
         )
+
         deps = ToolDeps(state, request_id)
         try:
             result = await self._agent.run(context, deps=deps)

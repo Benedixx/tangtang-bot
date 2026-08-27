@@ -4,11 +4,17 @@ import pytest
 
 from tang.config import MemoryConfig
 from tang.queue import Msg
+from tang.storage.json_store import JsonStore
 
 
 @pytest.fixture
 def mem_cfg(tmp_path) -> MemoryConfig:
-    return MemoryConfig(dir=str(tmp_path / "memory"))
+    return MemoryConfig(data_dir=str(tmp_path / "data"))
+
+
+@pytest.fixture
+def json_store(tmp_path) -> JsonStore:
+    return JsonStore(str(tmp_path / "data"))
 
 
 @pytest.fixture

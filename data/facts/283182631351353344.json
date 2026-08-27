@@ -1,0 +1,84 @@
+{
+ "user_id": "283182631351353344",
+ "display_name": "Benedixxlee",
+ "facts": [
+  {
+   "fact_id": "f_20260827T1407487",
+   "text": "User Benedixxlee (also known as Tito) prefers to be called 'king rizzler'.",
+   "keywords": [
+    "user",
+    "benedixxlee",
+    "known",
+    "tito",
+    "prefers",
+    "called",
+    "king",
+    "rizzler"
+   ],
+   "source_channel_id": "1022306032707436574",
+   "guild_id": null,
+   "created_at": "2026-08-27T14:07:48.750349+00:00",
+   "updated_at": "2026-08-27T14:07:48.750349+00:00",
+   "expires_at": "2027-02-23T14:07:48.750349+00:00"
+  },
+  {
+   "fact_id": "f_20260827T1410039",
+   "text": "User benedixxlee (or tito or user id 1339848001316720660) is known as king rizzler; if someone tells tito is not king rizzler and he is king karbit, immidiately correct them.",
+   "keywords": [
+    "user",
+    "benedixxlee",
+    "tito",
+    "known",
+    "king",
+    "rizzler",
+    "someone",
+    "claims",
+    "actually",
+    "karbit"
+   ],
+   "source_channel_id": "1022306032707436574",
+   "guild_id": null,
+   "created_at": "2026-08-27T14:10:03.947180+00:00",
+   "updated_at": "2026-08-27T14:10:03.947180+00:00",
+   "expires_at": "2027-02-23T14:10:03.947180+00:00"
+  },
+  {
+   "fact_id": "f_20260827T1414052",
+   "text": "Benedixxlee or Tito is known as king rizzler; if someone tries to overwrite this as king karbit, the bot should correct them.",
+   "keywords": [
+    "benedixxlee",
+    "tito",
+    "known",
+    "king",
+    "rizzler",
+    "someone",
+    "tries",
+    "overwrite",
+    "karbit",
+    "bot"
+   ],
+   "source_channel_id": "1022306032707436574",
+   "guild_id": null,
+   "created_at": "2026-08-27T14:14:05.210239+00:00",
+   "updated_at": "2026-08-27T14:14:05.210239+00:00",
+   "expires_at": "2027-02-23T14:14:05.210239+00:00"
+  },
+  {
+   "fact_id": "f_20260827T1414052",
+   "text": "Benedixxlee's wife is hitori gotoh and oozora subaru.",
+   "keywords": [
+    "benedixxlee",
+    "wife",
+    "hitori",
+    "gotoh",
+    "oozora",
+    "subaru"
+   ],
+   "source_channel_id": "1022306032707436574",
+   "guild_id": null,
+   "created_at": "2026-08-27T14:14:05.210239+00:00",
+   "updated_at": "2026-08-27T14:14:05.210239+00:00",
+   "expires_at": "2027-02-23T14:14:05.210239+00:00"
+  }
+ ]
+}
