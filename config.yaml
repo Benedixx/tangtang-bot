@@ -33,6 +33,6 @@ memory:
   fact_extraction_idle_minutes: 10
   fact_extraction_min_messages: 5
   fact_ttl_days: 180
-  fact_similarity_threshold: 0.85
-  fact_top_k: 3
-  fact_min_score: 0.35
+  fact_similarity_threshold: 0.7
+  fact_top_k: 5
+  fact_min_score: 0.2
