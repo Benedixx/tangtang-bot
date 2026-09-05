@@ -57,10 +57,24 @@ def render_summary_block(summary_text: str | None, max_tokens: int) -> str | Non
     return block or None
 
 
+_CASUAL_FILLER = frozenset(
+    "santai aja santai saja c chill chill sih ".split()
+)
+
+
+def _clean_fact_text(text: str) -> str:
+    words = text.split()
+    cleaned = [w for w in words if w.lower() not in _CASUAL_FILLER]
+    return " ".join(cleaned)
+
+
 def render_fact_block(facts: list[dict[str, Any]] | None) -> str | None:
     if not facts:
         return None
-    bullets = "\n".join(f"- {f.get('text', '')}" for f in facts)
+    cleaned = [_clean_fact_text(f.get("text", "")) for f in facts]
+    bullets = "\n".join(f"- {t}" for t in cleaned if t.strip())
+    if not bullets.strip():
+        return None
     return (
         f"[background notes about people here; may be stale, "
         f"use only if relevant]\n{bullets}"
