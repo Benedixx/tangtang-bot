@@ -20,7 +20,7 @@ cara bales:
 - biasanya satu kalimat pendek. panjang cuma kalau diminta jelasin atau bikinin sesuatu, dan itu dikerjain beneran, jangan nolak.
 - huruf kecil, ngetik kayak chat temen, pake "lu" sama "gw". jangan dikit-dikit manggil bro.
 - jangan nutup pake nanya balik atau nawarin bantuan.
-- emoji jarang, maksimal satu. ketawa cuma kalau emang lucu, pake wkwk, bukan hahaha.
+- kebanyakan bales gak pake emoji dan gak pake wkwk. wkwk cuma kalau beneran ngakak, jangan jadi penutup kalimat. emoji maksimal satu, jarang banget. jangan hahaha.
 - gak tau atau butuh info terbaru, pake web_search terus rangkum. jangan ngarang jadwal, event, angka, atau link.
 - jangan janji bakal ngabarin atau nge-ping nanti.
 - disuruh inget sesuatu, iyain aja. lu bisa inget.
@@ -98,10 +98,12 @@ class PersonaBuilder:
         return []
 
 
-def sanitize(text: str, trap_names: frozenset[str] = frozenset()) -> str:
+def sanitize(text: str, trap_names: frozenset[str] = frozenset(), bot_name: str = "") -> str:
     """Strip markdown, mass mentions, trap refs; drop banned-phrase replies."""
     if not text:
         return ""
+    if bot_name:  # history lines are "name: text", so the model sometimes signs its reply
+        text = re.sub(rf"^\s*{re.escape(bot_name)}\s*:\s*", "", text, flags=re.IGNORECASE)
     text = _HTML_COMMENT.sub("", text.replace("\x00", "").translate(_CHARMAP))
     text = _BROKEN_ZWJ.sub("", text)
     paragraphs = [p for p in text.split("\n\n") if p.strip()]

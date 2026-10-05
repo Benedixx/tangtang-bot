@@ -251,7 +251,7 @@ class Gateway(discord.Client):
         if result is None:
             return None
 
-        reply_text = sanitize(result.text, self._trap_names)
+        reply_text = sanitize(result.text, self._trap_names, self.config.bot_name)
         gif = (result.gif or "").strip()
         if gif and gif in reply_text:
             reply_text = reply_text.replace(gif, "").strip()
