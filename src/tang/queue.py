@@ -33,6 +33,10 @@ class Job:
     trigger_message_id: int
     trigger_author_id: int = 0
 
+    @property
+    def trigger(self) -> Msg | None:
+        return next((m for m in self.snapshot if m.message_id == self.trigger_message_id), None)
+
 
 @dataclass(slots=True)
 class Reply:

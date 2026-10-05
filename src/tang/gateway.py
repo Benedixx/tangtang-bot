@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
+from datetime import UTC, datetime
+from pathlib import Path
 
 import discord
 from rapidfuzz.fuzz import token_sort_ratio
@@ -45,6 +48,8 @@ class Gateway(discord.Client):
 
         # Storage
         self.json_store = JsonStore(config.memory.data_dir)
+        # Buffers keep only the last N turns; this append-only log is what the monthly review reads.
+        self._reply_log = Path(config.memory.data_dir) / "replies.jsonl"
 
         # Memory layers
         self.buffer = ShortTermBuffer(self.json_store, config.memory.buffer_max_turns)
@@ -286,6 +291,16 @@ class Gateway(discord.Client):
             return
 
         state.last_reply_ts = time.time()
+        trigger = job.trigger
+        with self._reply_log.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "ts": datetime.now(UTC).isoformat(),
+                "channel_id": str(job.channel_id),
+                "forced": job.forced,
+                "trigger": f"{trigger.author_name}: {trigger.content}" if trigger else "",
+                "reply": reply.text,
+                "gif": reply.gif,
+            }, ensure_ascii=False) + "\n")
         if reply.gif and self.gif_store.contains(reply.gif):
             state.recent_gifs.append(reply.gif)
 

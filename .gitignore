@@ -11,3 +11,9 @@ wheels/
 
 # Environment files
 .env
+
+# Runtime data: chat logs and per-user facts
+data/buffers/
+data/facts/
+data/replies.jsonl
+*.lock

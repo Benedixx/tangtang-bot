@@ -93,9 +93,7 @@ class Responder:
         turns: list[dict],
         memories: list[dict] | None = None,
     ) -> ResponderReply | None:
-        trigger = next(
-            (m for m in job.snapshot if m.message_id == job.trigger_message_id), None
-        )
+        trigger = job.trigger
 
         context, budget = assemble_prompt(
             turns,
