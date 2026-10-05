@@ -156,7 +156,7 @@ class Gateway(discord.Client):
             message_id=message.id,
             author_id=message.author.id,
             author_name=message.author.display_name,
-            content=(message.content or "").strip(),
+            content=(message.clean_content or "").strip(),
             is_bot=message.author.bot or message.webhook_id is not None,
             guild_id=message.guild.id if message.guild else None,
         )
@@ -230,6 +230,7 @@ class Gateway(discord.Client):
             return None
 
         memories: list[dict] = []
+        turns: list[dict] = []
         if self.config.memory.enabled:
             # Trigger summarization if buffer is large
             turns = self.buffer.read(job.channel_id)
@@ -270,9 +271,13 @@ class Gateway(discord.Client):
             return None
 
         # Anti-repeat guard: never send what the bot already said recently.
-        recent_bot = [m.content for m in reversed(state.buffer) if m.is_bot][:5]
+        # Persisted turns survive restarts; the 20-msg deque is the memory-off fallback.
+        bot_id = str(self.user.id) if self.user else ""
+        recent_bot = [
+            t.get("content", "") for t in turns if t.get("user_id") == bot_id
+        ][-8:] or [m.content for m in state.buffer if m.is_bot][-5:]
         if reply_text and any(
-            token_sort_ratio(reply_text.lower(), prev.lower()) >= 80
+            token_sort_ratio(reply_text.lower(), prev.lower()) >= 70
             for prev in recent_bot if prev
         ):
             LOGGER.info("[%s] repeat_reply_dropped", request_id)

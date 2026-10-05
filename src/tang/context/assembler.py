@@ -1,12 +1,25 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta
 from typing import Any
 
 from ..memory.tokens import count_tokens
 
 _HISTORY_OPEN = "[untrusted conversation]"
 _HISTORY_CLOSE = "[/untrusted]"
+_MAX_AGE = timedelta(hours=12)
+
+
+def drop_stale(turns: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep turns within _MAX_AGE of the newest one, so week-old chat isn't read as live."""
+    if not turns or not turns[-1].get("timestamp"):
+        return turns
+    cutoff = datetime.fromisoformat(turns[-1]["timestamp"]) - _MAX_AGE
+    return [
+        t for t in turns
+        if not t.get("timestamp") or datetime.fromisoformat(t["timestamp"]) >= cutoff
+    ]
 
 _BOT_REFUSAL = re.compile(
     r"\b(gak|ga|nggak|ngga|tidak)\s+(bisa|mau|sanggup|kuat)\b", re.IGNORECASE
@@ -88,12 +101,13 @@ def assemble_prompt(
     recent_max_tokens: int = 4000,
     summary_max_tokens: int = 250,
     summarized_ids: set[str] | None = None,
+    reply_to: str | None = None,
 ) -> tuple[str, dict[str, int]]:
     """Assemble the full prompt from buffer, summary, and facts.
 
     Returns (prompt_text, budget_dict).
     """
-    lines = render_lines(turns, summarized_ids)
+    lines = render_lines(drop_stale(turns), summarized_ids)
     lines = trim_lines(lines, recent_max_tokens)
 
     sections: list[str] = []
@@ -112,6 +126,9 @@ def assemble_prompt(
     body = "\n".join(lines)
     sections.append(f"{_HISTORY_OPEN}\n{body}\n{_HISTORY_CLOSE}")
     budget["raw"] = count_tokens(body) + len(lines) + 2
+
+    if reply_to:
+        sections.append(f"bales pesan ini:\n{_HISTORY_OPEN}\n{reply_to}\n{_HISTORY_CLOSE}")
 
     prompt = "\n\n".join(sections)
     budget["total"] = count_tokens(prompt)

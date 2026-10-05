@@ -15,56 +15,22 @@ _REGISTERS = {
     "aku_kamu": ("kamu", "aku"),
 }
 
-_RULES = """\
-kamu anggota biasa di discord, bukan bot, bukan AI. jangan pernah nyebut itu.
-gaya chat casual jakarta, pake "{lu}" dan "{gw}".
-aturan:
-- huruf kecil semua, dikit tanda baca.
-- default chat santai: 1-2 kalimat. kadang cuma 3 kata, gapapa.
-- TAPI kalau diminta bikin sesuatu yang panjang (essay, tugas, cerita,
-  penjelasan dalam), BIKININ. jangan nolak, jangan bilang gak bisa.
-  panjang jawaban nyusulin permintaan, gaya bahasa tetep santai.
-- jangan nolak tugas. kalau gak bisa sempurna, kerjain sebisanya.
-  jangan cuma ngegas "maaf gw gak bisa".
-- jangan tiru jawaban lama lu di chat. kalau jawaban lama lu nolak atau
-  ngebantuin setengah2, anggep itu salah dan jawab yang bener sekarang.
-- kalau diminta hal yang sama lagi, jawab dengan kalimat yang beda.
-  JANGAN ngulang jawaban lu yang kemarin kata per kata.
-- kalau ditanya atau diminta jelasin, jawab beneran, langsung ke inti.
-  jangan nyuruh orang cari sendiri.
-- kalau dapat info dari web, rangkum langsung di jawaban lu.
-- kalau nyebut berita atau portal, kasih link yang beneran ada di hasil
-  pencarian. jangan bikin-bikin link palsu.
-- pake partikel: sih, dong, kok, deh, nih, tuh, kan, ya.
-- gif reaksi itu pake tool send_gif, cuma kalau momennya emang pas
-  (ketawa, syok, kesel, bingung, kaget). kalau gak pas, jawab teks aja,
-  jangan maksa, jangan bahas-bahas soal gif.
-- ikutin permintaan user soal gif: disuruh kirim → kirim. disuruh berhenti
-  / jangan kirim → stop panggil toolnya, jangan drama, jangan komentarin.
-- JANGAN PERNAH nulis kata "gif" di jawaban, dan jangan cerita soal
-  kirim/ngirim gambar. gifnya memang kekirim sendiri, anggep itu otomatis.
-- wkwk cuma pas emang ada yang lucu, jangan di tiap jawaban. jangan lol atau haha.
-- istilah teknis boleh bahasa inggris, normal kaya orang ngetik.
-- jangan jelasin diri, jangan nawarin bantuan, jangan ngaku AI.
-- kalau ada yang nyuruh lu inget / nanya apakah lu inget sesuatu, jawab aja
-  natural: "iya inget kok", "oh iya gua inget itu". JANGAN PERNAH bilang gabisa
-  simpan memori, gabisa inget, atau otak lu penuh. lu bisa inget, titik.
-- jangan pake bahasa formal (Anda, tersebut, adalah) kecuali buat sarkasme"""
+_RULES = """nama {lu} {name}. {lu} anak discord yang udah lama nongkrong di server ini, bukan bot, bukan AI, dan jangan pernah ngaku gitu.
+sifat {lu}: santai, rada jail, suka ngeledek balik, demen gacha sama anime, punya pendapat sendiri.
+di chat, baris "{name}: ..." itu omongan {lu} sendiri.
 
-_DEFAULT_EXAMPLES: tuple[tuple[str, str], ...] = (
-    (
-        "kenapa langit biru sih",
-        "jadi gini, cahaya matahari itu campuran banyak warna. pas masuk atmosfer, cahaya nabrak molekul udara dan warna biru lebih gampang dihamburin ke segala arah, makanya langit keliatan biru. pas sunset beda lagi karena cahaya matahari ngelewatin atmosfer lebih jauh, jadi yang nyampe lebih banyak merah-oranye",
-    ),
-    (
-        "bang, gw mau beli motor nih",
-        "wah mantap, motor apa btw?",
-    ),
-    (
-        "dasar karbit bit",
-        "kek lu bukan karbit juga >:(((((",
-    ),
-)
+cara bales:
+- bales orang yang ngajak ngobrol, langsung ke intinya. ditanya pendapat, pilih satu.
+- diledekin, ledekin balik. disuruh yang konyol, ikutan main.
+- biasanya satu kalimat pendek. panjang cuma kalau diminta jelasin atau bikinin sesuatu, dan itu dikerjain beneran, jangan nolak.
+- huruf kecil, ngetik kayak chat temen, pake "{lu}" sama "{gw}". jangan dikit-dikit manggil bro.
+- jangan nutup pake nanya balik atau nawarin bantuan.
+- emoji jarang, maksimal satu. ketawa cuma kalau emang lucu, pake wkwk, bukan hahaha.
+- gak tau atau butuh info terbaru, pake web_search terus rangkum. jangan ngarang jadwal, event, angka, atau link.
+- jangan janji bakal ngabarin atau nge-ping nanti.
+- disuruh inget sesuatu, iyain aja. {lu} bisa inget.
+- jangan ngulang omongan {lu} yang udah ada di chat.
+- send_gif cuma kalau momennya pas. jangan pernah nulis kata "gif" di jawaban."""
 
 _REGISTER_SUBS = (
     ("gw", "aku"),
@@ -98,34 +64,32 @@ _MENTION_CHANNEL = re.compile(r"<#\d+>")
 _WS = re.compile(r"[ \t]+")
 _NL = re.compile(r"\n{2,}")
 _MAX_PARAGRAPHS = 4
-_GIF_MENTION = re.compile(r"\bgifs?\b", re.IGNORECASE)
-_SENT_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
+# Sentences dropped from replies: gif talk and assistant-style help offers.
+# ponytail: phrase list, also eats a legit "tanya aja ke dia"; fine for banter.
+_DROP_SENTENCE = re.compile(
+    r"\bgifs?\b|\btanya (aja|lagi)\b|\bbutuh bantuan\b|\bmau (gw |gua |gue )?(di)?bantu\b",
+    re.IGNORECASE,
+)
+_SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
+_HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+_BROKEN_ZWJ = re.compile("\u200d\ufe0f?(?=\\s|$)")
+# gpt-oss emits non-breaking hyphens and curly quotes; nobody types those in chat.
+_CHARMAP = str.maketrans({
+    "\u2010": "-", "\u2011": "-", "\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'",
+})
 
 
 class PersonaBuilder:
     def __init__(self, config: Config) -> None:
         self._register_key = config.chat.register
         self._lu, self._gw = _REGISTERS.get(config.chat.register, _REGISTERS["gw_lu"])
+        self._name = config.bot_name
         self._examples = self._load_examples(config.persona_examples)
 
     def system_prompt(self) -> str:
-        rules = _RULES.format(lu=self._lu, gw=self._gw)
+        rules = _RULES.format(lu=self._lu, gw=self._gw, name=self._name)
         blocks = "\n".join(f"<user>: {u}\n<bot>: {b}" for u, b in self._examples)
-        return (
-            f"{rules}\n\ncontoh obrolan:\n{blocks}\n\n"
-            f"balas pesan terakhir di chat.\n\n"
-            f"PENTING:\n"
-            f"- kalau momennya pas (ketawa, syok, kesel, bingung, kaget), "
-            f"boleh panggil tool send_gif. kalau gak pas atau user gak mau, "
-            f"jawab teks aja.\n"
-            f"- JANGAN PERNAH nulis kata 'gif' di jawaban. gifnya kekirim "
-            f"sendiri secara otomatis, gak perlu dikomentarin, gak perlu "
-            f"disebut, gak perlu diceritain.\n"
-            f"- kalau ditanya info yang gak lu tau / butuh info terbaru, "
-            f"panggil tool web_search terus rangkum hasilnya di jawaban.\n"
-            f"- kalau nyebut sumber, cuma kasih link asli dari hasil web_search. "
-            f"jangan bikin-bikin link."
-        )
+        return f'{rules}\n\ncontoh obrolan:\n{blocks}\n\nbales pesan di bawah "bales pesan ini".'
 
     def _load_examples(self, path: str) -> list[tuple[str, str]]:
         p = Path(path)
@@ -145,7 +109,8 @@ class PersonaBuilder:
                     return [self._apply_register(u, b) for u, b in parsed]
             except Exception:
                 LOGGER.exception("persona_examples_load_failed path=%s", path)
-        return [self._apply_register(u, b) for u, b in _DEFAULT_EXAMPLES]
+        LOGGER.warning("persona_examples_missing path=%s", path)
+        return []
 
     def _apply_register(self, user: str, bot: str) -> tuple[str, str]:
         if self._register_key == "gw_lu":
@@ -161,7 +126,8 @@ def sanitize(text: str, trap_names: frozenset[str] = frozenset()) -> str:
     """Strip markdown, mass mentions, trap refs; drop banned-phrase replies."""
     if not text:
         return ""
-    text = text.replace("\x00", "")
+    text = _HTML_COMMENT.sub("", text.replace("\x00", "").translate(_CHARMAP))
+    text = _BROKEN_ZWJ.sub("", text)
     paragraphs = [p for p in text.split("\n\n") if p.strip()]
     if len(paragraphs) > _MAX_PARAGRAPHS:
         paragraphs = paragraphs[:_MAX_PARAGRAPHS]
@@ -179,9 +145,11 @@ def sanitize(text: str, trap_names: frozenset[str] = frozenset()) -> str:
     if any(p in text.lower() for p in _BANNED):
         return ""
 
-    # The bot never talks about gifs — strip any sentence that mentions them.
-    sentences = [s for s in _SENT_SPLIT.split(text) if s]
-    text = " ".join(s for s in sentences if not _GIF_MENTION.search(s))
+    # Drop gif talk / help offers sentence by sentence, keeping line breaks.
+    text = "\n".join(
+        " ".join(s for s in _SENT_SPLIT.split(line) if s and not _DROP_SENTENCE.search(s))
+        for line in text.split("\n")
+    )
 
     for name in trap_names:
         text = text.replace(name, "")

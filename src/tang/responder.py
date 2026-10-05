@@ -110,6 +110,10 @@ class Responder:
         summarizer = Summarizer(self._store, None)
         summary_text = summarizer.read(channel_id) if channel_id else None
 
+        trigger = next(
+            (m for m in job.snapshot if m.message_id == job.trigger_message_id), None
+        )
+
         # Assemble prompt
         context, budget = assemble_prompt(
             turns,
@@ -117,6 +121,7 @@ class Responder:
             facts=memories,
             recent_max_tokens=cfg.buffer_max_tokens,
             summary_max_tokens=cfg.summary_max_tokens,
+            reply_to=f"{trigger.author_name}: {trigger.content}" if trigger else None,
         )
 
         LOGGER.info(

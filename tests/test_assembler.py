@@ -87,3 +87,11 @@ def test_assemble_prompt_ordering():
     assert "earlier topic" in prompt
     assert "budi: halo" in prompt
     assert budget["total"] > 0
+
+
+def test_stale_turns_dropped_and_reply_to_marked():
+    old = {**_turn(content="jam 4 ngangkat"), "timestamp": "2026-09-05T08:00:00+00:00"}
+    new = {**_turn(content="kasih paham tang"), "timestamp": "2026-09-19T05:18:00+00:00"}
+    prompt, _ = assemble_prompt([old, new], reply_to="budi: kasih paham tang")
+    assert "jam 4 ngangkat" not in prompt
+    assert prompt.endswith("bales pesan ini:\n[untrusted conversation]\nbudi: kasih paham tang\n[/untrusted]")

@@ -64,8 +64,8 @@ class MemoryConfig:
 class Config:
     discord_token: str
     groq_api_key: str
-    bot_name: str = "koyuki"
-    bot_name_aliases: tuple[str, ...] = ()
+    bot_name: str = "tangtang"
+    bot_name_aliases: tuple[str, ...] = ("tang", "supreme chief", "chief")
     trap: TrapConfig = field(default_factory=TrapConfig)
     chat: ChatConfig = field(default_factory=ChatConfig)
     models: ModelsConfig = field(default_factory=ModelsConfig)
@@ -79,11 +79,6 @@ def _require(name: str) -> str:
     if val:
         return val
     raise ValueError(f"Missing required environment variable: {name}")
-
-
-def _csv_env(name: str) -> tuple[str, ...]:
-    raw = os.getenv(name, "")
-    return tuple(x.strip() for x in raw.split(",") if x.strip())
 
 
 def _int_list(raw: Any) -> tuple[int, ...]:
@@ -149,8 +144,6 @@ def load() -> Config:
     return Config(
         discord_token=_require("DISCORD_TOKEN"),
         groq_api_key=_require("GROQ_API_KEY"),
-        bot_name=os.getenv("BOT_NAME", "koyuki"),
-        bot_name_aliases=_csv_env("BOT_NAME_ALIASES"),
         trap=TrapConfig(
             enabled=_b("enabled", trap, True),
             channels=_int_list(trap.get("channels")),
