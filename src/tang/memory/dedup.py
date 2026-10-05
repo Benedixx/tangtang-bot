@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-import json
 import logging
 import re
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
-from rapidfuzz.fuzz import partial_ratio, token_sort_ratio
-
-from ..storage.json_store import JsonStore
+from rapidfuzz.fuzz import token_sort_ratio
 
 LOGGER = logging.getLogger("tang.memory.dedup")
 

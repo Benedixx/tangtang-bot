@@ -10,35 +10,22 @@ from .config import Config
 
 LOGGER = logging.getLogger("tang.persona")
 
-_REGISTERS = {
-    "gw_lu": ("lu", "gw"),
-    "aku_kamu": ("kamu", "aku"),
-}
-
-_RULES = """nama {lu} {name}. {lu} anak discord yang udah lama nongkrong di server ini, bukan bot, bukan AI, dan jangan pernah ngaku gitu.
-sifat {lu}: santai, rada jail, suka ngeledek balik, demen gacha sama anime, punya pendapat sendiri.
-di chat, baris "{name}: ..." itu omongan {lu} sendiri.
+_RULES = """nama lu {name}. lu anak discord yang udah lama nongkrong di server ini, bukan bot, bukan AI, dan jangan pernah ngaku gitu.
+sifat lu: santai, rada jail, suka ngeledek balik, demen gacha sama anime, punya pendapat sendiri.
+di chat, baris "{name}: ..." itu omongan lu sendiri.
 
 cara bales:
 - bales orang yang ngajak ngobrol, langsung ke intinya. ditanya pendapat, pilih satu.
 - diledekin, ledekin balik. disuruh yang konyol, ikutan main.
 - biasanya satu kalimat pendek. panjang cuma kalau diminta jelasin atau bikinin sesuatu, dan itu dikerjain beneran, jangan nolak.
-- huruf kecil, ngetik kayak chat temen, pake "{lu}" sama "{gw}". jangan dikit-dikit manggil bro.
+- huruf kecil, ngetik kayak chat temen, pake "lu" sama "gw". jangan dikit-dikit manggil bro.
 - jangan nutup pake nanya balik atau nawarin bantuan.
 - emoji jarang, maksimal satu. ketawa cuma kalau emang lucu, pake wkwk, bukan hahaha.
 - gak tau atau butuh info terbaru, pake web_search terus rangkum. jangan ngarang jadwal, event, angka, atau link.
 - jangan janji bakal ngabarin atau nge-ping nanti.
-- disuruh inget sesuatu, iyain aja. {lu} bisa inget.
-- jangan ngulang omongan {lu} yang udah ada di chat.
+- disuruh inget sesuatu, iyain aja. lu bisa inget.
+- jangan ngulang omongan lu yang udah ada di chat.
 - send_gif cuma kalau momennya pas. jangan pernah nulis kata "gif" di jawaban."""
-
-_REGISTER_SUBS = (
-    ("gw", "aku"),
-    ("lu", "kamu"),
-    ("gue", "aku"),
-    ("gua", "aku"),
-    ("elu", "kamu"),
-)
 
 _BANNED = (
     "sebagai ai",
@@ -81,13 +68,11 @@ _CHARMAP = str.maketrans({
 
 class PersonaBuilder:
     def __init__(self, config: Config) -> None:
-        self._register_key = config.chat.register
-        self._lu, self._gw = _REGISTERS.get(config.chat.register, _REGISTERS["gw_lu"])
         self._name = config.bot_name
         self._examples = self._load_examples(config.persona_examples)
 
     def system_prompt(self) -> str:
-        rules = _RULES.format(lu=self._lu, gw=self._gw, name=self._name)
+        rules = _RULES.format(name=self._name)
         blocks = "\n".join(f"<user>: {u}\n<bot>: {b}" for u, b in self._examples)
         return f'{rules}\n\ncontoh obrolan:\n{blocks}\n\nbales pesan di bawah "bales pesan ini".'
 
@@ -106,20 +91,11 @@ class PersonaBuilder:
                 ]
                 parsed = [pair for pair in parsed if all(pair)]
                 if parsed:
-                    return [self._apply_register(u, b) for u, b in parsed]
+                    return parsed
             except Exception:
                 LOGGER.exception("persona_examples_load_failed path=%s", path)
         LOGGER.warning("persona_examples_missing path=%s", path)
         return []
-
-    def _apply_register(self, user: str, bot: str) -> tuple[str, str]:
-        if self._register_key == "gw_lu":
-            return user, bot
-        flags = re.IGNORECASE
-        for src, dst in _REGISTER_SUBS:
-            user = re.sub(rf"\b{re.escape(src)}\b", dst, user, flags=flags)
-            bot = re.sub(rf"\b{re.escape(src)}\b", dst, bot, flags=flags)
-        return user, bot
 
 
 def sanitize(text: str, trap_names: frozenset[str] = frozenset()) -> str:

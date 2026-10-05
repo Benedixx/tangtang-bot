@@ -4,6 +4,7 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from rapidfuzz.fuzz import partial_ratio
 
@@ -112,7 +113,7 @@ class LongTermMemory:
                 expires_at = (datetime.now(UTC) + timedelta(days=ttl_days)).isoformat()
 
             existing.append({
-                "fact_id": f"f_{now.replace(':', '').replace('-', '').replace('.', '')[:16]}",
+                "fact_id": f"f_{uuid4().hex[:12]}",
                 "text": text,
                 "keywords": keywords,
                 "source_channel_id": fact.get("source_channel_id", ""),

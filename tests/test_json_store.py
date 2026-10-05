@@ -41,27 +41,8 @@ def test_corrupt_file_quarantined(tmp_path):
     assert len(quarantined) == 1
 
 
-def test_append_jsonl(tmp_path):
-    store = JsonStore(str(tmp_path / "data"))
-    path = tmp_path / "data" / "test.jsonl"
-    store.append_jsonl(path, {"line": 1})
-    store.append_jsonl(path, {"line": 2})
-    records = store.read_jsonl(path)
-    assert len(records) == 2
-    assert records[0]["line"] == 1
-    assert records[1]["line"] == 2
-
-
-def test_read_jsonl_missing(tmp_path):
-    store = JsonStore(str(tmp_path / "data"))
-    records = store.read_jsonl(tmp_path / "nonexistent.jsonl")
-    assert records == []
-
-
 def test_ensure_dirs(tmp_path):
     data_dir = tmp_path / "new_data"
     store = JsonStore(str(data_dir))
     assert (data_dir / "buffers").is_dir()
-    assert (data_dir / "summaries").is_dir()
     assert (data_dir / "facts").is_dir()
-    assert (data_dir / "archive").is_dir()

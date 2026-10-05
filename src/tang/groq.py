@@ -7,7 +7,6 @@ import time
 from typing import Any
 
 from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletionMessageToolCall
 
 LOGGER = logging.getLogger("tang.groq")
 

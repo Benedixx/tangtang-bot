@@ -13,7 +13,6 @@ chat:
   debounce_s: 3
   budget_per_hour: 4
   base_threshold: 0.65
-  register: gw_lu
 
 models:
   gate: openai/gpt-oss-20b
@@ -25,11 +24,9 @@ gif:
   manifest: data/gif_manifest.json
 
 memory:
-  enabled: true
   data_dir: ./data
-  buffer_max_turns: 25
+  buffer_max_turns: 60
   buffer_max_tokens: 4000
-  summary_max_tokens: 250
   fact_extraction_idle_minutes: 10
   fact_extraction_min_messages: 5
   fact_ttl_days: 180

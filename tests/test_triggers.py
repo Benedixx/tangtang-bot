@@ -17,6 +17,8 @@ from tang.memory.triggers import wants_memory
     "keep in mind gw gak suka telat",
     "don't forget the meeting",
     "INGET INI BANG",
+    "tambahkan ke database my bini",
+    "masukin ke list ya tang",
 ])
 def test_memory_requests_detected(text):
     assert wants_memory(text) is True

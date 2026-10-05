@@ -15,30 +15,13 @@ def test_append_and_read(tmp_path):
     assert turns[1]["role"] == "assistant"
 
 
-def test_trim(tmp_path):
+def test_append_caps_turns(tmp_path):
     store = JsonStore(str(tmp_path / "data"))
-    buf = ShortTermBuffer(store)
+    buf = ShortTermBuffer(store, max_turns=3)
     for i in range(10):
         buf.append(123, 456, str(i), f"user{i}", "user", f"msg{i}")
-    turns = buf.trim(123, keep_last=3)
-    assert len(turns) == 3
-    assert turns[-1]["content"] == "msg9"
-
-
-def test_clear(tmp_path):
-    store = JsonStore(str(tmp_path / "data"))
-    buf = ShortTermBuffer(store)
-    buf.append(123, 456, "100", "Alice", "user", "hello")
-    buf.clear(123)
-    assert buf.read(123) == []
-
-
-def test_count_turns(tmp_path):
-    store = JsonStore(str(tmp_path / "data"))
-    buf = ShortTermBuffer(store)
-    buf.append(123, 456, "100", "Alice", "user", "hello")
-    buf.append(123, 456, "bot", "Bot", "assistant", "hi")
-    assert buf.count_turns(123) == 2
+    turns = buf.read(123)
+    assert [t["content"] for t in turns] == ["msg7", "msg8", "msg9"]
 
 
 def test_multiple_channels(tmp_path):

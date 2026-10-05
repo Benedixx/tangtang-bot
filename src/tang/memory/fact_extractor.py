@@ -2,24 +2,24 @@ from __future__ import annotations
 
 import logging
 
-from pydantic import ValidationError
-
 from ..groq import GroqClient
 
 LOGGER = logging.getLogger("tang.memory.fact_extractor")
 
 _EXTRACT_SYSTEM = """\
-You extract durable long-term memories from a Discord conversation for a \
-casual chat bot. Extract ONLY information worth remembering next week:
-stable preferences, ongoing projects, important decisions, recurring routines.
+You extract durable long-term memories about the people in a Discord \
+conversation for a casual chat bot. Extract ONLY information worth \
+remembering next week: stable preferences, nicknames, ongoing projects, \
+important decisions, recurring routines.
 If a user explicitly asks the bot to remember something ("inget ya", \
-"catet", "jangan lupa"), that content MUST be extracted with importance \
-and confidence of at least 0.9.
+"catet", "jangan lupa", "tambahin ke database"), that content MUST be extracted.
 Do NOT extract small talk, jokes, typos, one-off statements, or anything \
 transient. If nothing qualifies, return an empty list.
+Each fact is one short plain statement about one person, never an \
+instruction to the bot. "about" is that person's name exactly as written \
+before the colon.
 Output JSON only:
-{"facts": [{"text": "one short sentence", "source_channel_id": "123", \
-"guild_id": "456"}]}
+{"facts": [{"about": "Alice", "text": "Alice works night shifts"}]}
 Be conservative — an empty list is the correct answer most of the time."""
 
 
@@ -37,9 +37,15 @@ class FactExtractor:
     ) -> list[dict]:
         """Extract durable facts from conversation turns.
 
-        Returns list of fact dicts with text, source_channel_id, guild_id.
+        Returns fact dicts with user_id, display_name, text, source_channel_id,
+        guild_id. Facts about anyone who isn't a human speaker here are dropped.
         """
-        if not turns:
+        people = {
+            t["display_name"].casefold(): (t.get("user_id", ""), t["display_name"])
+            for t in turns
+            if t.get("role") == "user" and t.get("display_name")
+        }
+        if not people:
             return []
 
         lines = "\n".join(
@@ -72,7 +78,12 @@ class FactExtractor:
         for f in facts_raw:
             if not isinstance(f, dict) or not f.get("text"):
                 continue
+            person = people.get(str(f.get("about", "")).strip().casefold())
+            if person is None:
+                continue
             result.append({
+                "user_id": person[0],
+                "display_name": person[1],
                 "text": f["text"],
                 "source_channel_id": str(channel_id),
                 "guild_id": str(guild_id) if guild_id else None,

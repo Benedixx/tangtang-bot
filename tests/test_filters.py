@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from tang.config import ChatConfig
-from tang.filters import is_command, tier0_reason
+from tang.filters import COMMAND, tier0_reason
 
 
 def _msg(content: str):
@@ -11,8 +11,8 @@ def _msg(content: str):
 
 
 def test_commands_and_textless_messages_dropped():
-    assert is_command("$wr linnea") and is_command("!k tes")
-    assert not is_command("$ 20 itu mahal") and not is_command("halo $wg")
+    assert COMMAND.match("$wr linnea") and COMMAND.match("!k tes")
+    assert not COMMAND.match("$ 20 itu mahal") and not COMMAND.match("halo $wg")
     cfg = ChatConfig()
     assert tier0_reason(_msg("<:NilouShock:1233332881649172490>"), cfg) == "no_text"
     assert tier0_reason(_msg("<@737533245138141234> @here"), cfg) == "no_text"

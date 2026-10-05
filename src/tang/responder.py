@@ -1,20 +1,16 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.groq import GroqModel
 from pydantic_ai.settings import ModelSettings
 
-from .config import MemoryConfig
 from .context.assembler import assemble_prompt
-from .context.long_term import LongTermMemory
-from .context.short_term import ShortTermBuffer
 from .persona import PersonaBuilder
 from .queue import ChannelState, Job
-from .storage.json_store import JsonStore
 from .tools.gifs import GIF_TAGS, GifStore
 from .tools.search import WebSearchTool
 
@@ -50,12 +46,9 @@ class Responder:
         persona: PersonaBuilder,
         gif_store: GifStore,
         search: WebSearchTool,
-        store: JsonStore,
-        memory_cfg: MemoryConfig | None = None,
+        recent_max_tokens: int,
     ) -> None:
-        self._memory_cfg = memory_cfg or MemoryConfig()
-        self._buffer = ShortTermBuffer(store)
-        self._store = store
+        self._recent_max_tokens = recent_max_tokens
 
         groq_model = GroqModel(model, settings=ModelSettings(
             temperature=0.9,
@@ -97,30 +90,17 @@ class Responder:
         job: Job,
         state: ChannelState,
         request_id: str,
-        channel_id: int | None = None,
+        turns: list[dict],
         memories: list[dict] | None = None,
     ) -> ResponderReply | None:
-        cfg = self._memory_cfg
-
-        # Read buffer turns from JSON
-        turns = self._buffer.read(channel_id) if channel_id else []
-
-        # Read summary from JSON
-        from .context.summarizer import Summarizer
-        summarizer = Summarizer(self._store, None)
-        summary_text = summarizer.read(channel_id) if channel_id else None
-
         trigger = next(
             (m for m in job.snapshot if m.message_id == job.trigger_message_id), None
         )
 
-        # Assemble prompt
         context, budget = assemble_prompt(
             turns,
-            summary_text=summary_text,
             facts=memories,
-            recent_max_tokens=cfg.buffer_max_tokens,
-            summary_max_tokens=cfg.summary_max_tokens,
+            recent_max_tokens=self._recent_max_tokens,
             reply_to=f"{trigger.author_name}: {trigger.content}" if trigger else None,
         )
 

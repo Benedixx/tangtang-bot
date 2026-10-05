@@ -26,16 +26,10 @@ _BOT_REFUSAL = re.compile(
 )
 
 
-def render_lines(
-    turns: list[dict[str, Any]],
-    summarized_ids: set[str] | None = None,
-) -> list[str]:
-    """Render turns as 'name: content' lines, filtering out summarized and refusal turns."""
+def render_lines(turns: list[dict[str, Any]]) -> list[str]:
+    """Render turns as 'name: content' lines, filtering out the bot's own refusals."""
     lines = []
     for t in turns:
-        uid = t.get("user_id", "")
-        if summarized_ids and uid in summarized_ids:
-            continue
         content = t.get("content", "")
         if t.get("role") == "assistant" and _BOT_REFUSAL.search(content):
             continue
@@ -59,15 +53,6 @@ def trim_lines(lines: list[str], budget_tokens: int) -> list[str]:
             break
     kept.reverse()
     return kept
-
-
-def render_summary_block(summary_text: str | None, max_tokens: int) -> str | None:
-    if not summary_text:
-        return None
-    block = f"[earlier in this channel]\n{summary_text}"
-    while count_tokens(block) > max_tokens and len(block) > 50:
-        block = block[: block.rfind("\n")]
-    return block or None
 
 
 _CASUAL_FILLER = frozenset(
@@ -96,18 +81,15 @@ def render_fact_block(facts: list[dict[str, Any]] | None) -> str | None:
 
 def assemble_prompt(
     turns: list[dict[str, Any]],
-    summary_text: str | None = None,
     facts: list[dict[str, Any]] | None = None,
     recent_max_tokens: int = 4000,
-    summary_max_tokens: int = 250,
-    summarized_ids: set[str] | None = None,
     reply_to: str | None = None,
 ) -> tuple[str, dict[str, int]]:
-    """Assemble the full prompt from buffer, summary, and facts.
+    """Assemble the full prompt from facts, recent turns, and the message to answer.
 
     Returns (prompt_text, budget_dict).
     """
-    lines = render_lines(drop_stale(turns), summarized_ids)
+    lines = render_lines(drop_stale(turns))
     lines = trim_lines(lines, recent_max_tokens)
 
     sections: list[str] = []
@@ -117,11 +99,6 @@ def assemble_prompt(
     if fact_block:
         sections.append(fact_block)
         budget["facts"] = count_tokens(fact_block)
-
-    summary_block = render_summary_block(summary_text, summary_max_tokens)
-    if summary_block:
-        sections.append(summary_block)
-        budget["summary"] = count_tokens(summary_block)
 
     body = "\n".join(lines)
     sections.append(f"{_HISTORY_OPEN}\n{body}\n{_HISTORY_CLOSE}")

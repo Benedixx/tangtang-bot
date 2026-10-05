@@ -29,7 +29,6 @@ class ChatConfig:
     debounce_s: float = 3.0
     budget_per_hour: int = 4
     base_threshold: float = 0.65
-    register: str = "gw_lu"
 
 
 @dataclass(slots=True)
@@ -47,11 +46,9 @@ class GifConfig:
 
 @dataclass(slots=True)
 class MemoryConfig:
-    enabled: bool = True
     data_dir: str = "./data"
-    buffer_max_turns: int = 25
+    buffer_max_turns: int = 60
     buffer_max_tokens: int = 4000
-    summary_max_tokens: int = 250
     fact_extraction_idle_minutes: float = 10.0
     fact_extraction_min_messages: int = 5
     fact_ttl_days: int = 180
@@ -159,7 +156,6 @@ def load() -> Config:
             debounce_s=_f("debounce_s", chat, 3.0),
             budget_per_hour=_i("budget_per_hour", chat, 4),
             base_threshold=_f("base_threshold", chat, 0.65),
-            register=str(chat.get("register", "gw_lu")),
         ),
         models=ModelsConfig(
             gate=str(models.get("gate", "openai/gpt-oss-20b")),
@@ -171,11 +167,9 @@ def load() -> Config:
             manifest=str(gif.get("manifest", "data/gif_manifest.json")),
         ),
         memory=MemoryConfig(
-            enabled=_b("enabled", memory, True),
             data_dir=str(memory.get("data_dir", "./data")),
-            buffer_max_turns=_i("buffer_max_turns", memory, 25),
+            buffer_max_turns=_i("buffer_max_turns", memory, 60),
             buffer_max_tokens=_i("buffer_max_tokens", memory, 4000),
-            summary_max_tokens=_i("summary_max_tokens", memory, 250),
             fact_extraction_idle_minutes=_f("fact_extraction_idle_minutes", memory, 10.0),
             fact_extraction_min_messages=_i("fact_extraction_min_messages", memory, 5),
             fact_ttl_days=_i("fact_ttl_days", memory, 180),

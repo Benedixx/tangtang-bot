@@ -4,19 +4,12 @@ from tang.context.assembler import (
     assemble_prompt,
     render_fact_block,
     render_lines,
-    render_summary_block,
     trim_lines,
 )
 
 
 def _turn(uid: str = "100", name: str = "budi", content: str = "halo", role: str = "user"):
     return {"user_id": uid, "display_name": name, "role": role, "content": content}
-
-
-def test_render_lines_skips_summarized():
-    turns = [_turn(content="a"), _turn(uid="200", content="b"), _turn(content="c")]
-    lines = render_lines(turns, {"200"})
-    assert lines == ["budi: a", "budi: c"]
 
 
 def test_render_lines_scrubs_bot_refusals():
@@ -48,18 +41,6 @@ def test_trim_lines_newest_survives_even_if_oversized():
     assert kept == [huge]
 
 
-def test_render_summary_block_respects_max_tokens():
-    summary = "ini fak yang cukup panjang sekali " * 50
-    block = render_summary_block(summary, 60)
-    assert block is not None
-    from tang.memory.tokens import count_tokens
-    assert count_tokens(block) <= 60
-
-
-def test_render_summary_block_none():
-    assert render_summary_block(None, 100) is None
-
-
 def test_render_fact_block():
     facts = [{"text": "User likes python"}, {"text": "User works at bank"}]
     block = render_fact_block(facts)
@@ -75,16 +56,9 @@ def test_render_fact_block_empty():
 
 def test_assemble_prompt_ordering():
     turns = [_turn(content="halo"), _turn(content="hai")]
-    prompt, budget = assemble_prompt(
-        turns,
-        summary_text="earlier topic",
-        facts=[{"text": "user fact"}],
-    )
-    assert "[background" in prompt
-    assert "[earlier in this channel]" in prompt
-    assert "[untrusted conversation]" in prompt
+    prompt, budget = assemble_prompt(turns, facts=[{"text": "user fact"}])
+    assert prompt.index("[background") < prompt.index("[untrusted conversation]")
     assert "user fact" in prompt
-    assert "earlier topic" in prompt
     assert "budi: halo" in prompt
     assert budget["total"] > 0
 

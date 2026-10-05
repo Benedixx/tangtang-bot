@@ -11,15 +11,14 @@ from rapidfuzz.fuzz import token_sort_ratio
 from .config import Config
 from .context.long_term import LongTermMemory
 from .context.short_term import ShortTermBuffer
-from .context.summarizer import Summarizer
-from .filters import is_command, tier0_reason
+from .filters import COMMAND, tier0_reason
 from .gate import Gate
 from .groq import GroqClient
 from .guard import Guard
 from .memory.fact_extractor import FactExtractor
 from .memory.triggers import wants_memory
 from .persona import PersonaBuilder, sanitize
-from .queue import ChannelRegistry, Job, Msg, Reply
+from .queue import ChannelRegistry, Msg, Reply
 from .responder import Responder
 from .storage.json_store import JsonStore
 from .tools.gifs import GifStore
@@ -48,8 +47,7 @@ class Gateway(discord.Client):
         self.json_store = JsonStore(config.memory.data_dir)
 
         # Memory layers
-        self.buffer = ShortTermBuffer(self.json_store)
-        self.summarizer = Summarizer(self.json_store, GroqClient(config.groq_api_key, config.models.gate))
+        self.buffer = ShortTermBuffer(self.json_store, config.memory.buffer_max_turns)
         self.long_term = LongTermMemory(self.json_store, config.memory)
         self.fact_extractor = FactExtractor(GroqClient(config.groq_api_key, config.models.gate))
 
@@ -72,8 +70,7 @@ class Gateway(discord.Client):
             self.persona,
             self.gif_store,
             self.search,
-            self.json_store,
-            config.memory,
+            config.memory.buffer_max_tokens,
         )
 
         self._allowed = frozenset(config.chat.allowed_channels)
@@ -97,11 +94,8 @@ class Gateway(discord.Client):
         )
         self._trap_names = self._collect_trap_names()
         if self._forget_task is None or self._forget_task.done():
-            if self.config.memory.enabled:
-                self.long_term.sweep()
-                self._forget_task = asyncio.get_running_loop().create_task(
-                    self._forget_loop()
-                )
+            self.long_term.sweep()
+            self._forget_task = asyncio.get_running_loop().create_task(self._forget_loop())
         await self.gif_store.upload_all(self, self.config.gif.staging_channel)
 
     async def _forget_loop(self) -> None:
@@ -161,7 +155,7 @@ class Gateway(discord.Client):
             guild_id=message.guild.id if message.guild else None,
         )
         # Bot commands are neither triggers nor context.
-        if not msg.content or is_command(msg.content):
+        if not msg.content or COMMAND.match(msg.content):
             return
 
         channel_id = message.channel.id
@@ -170,22 +164,20 @@ class Gateway(discord.Client):
         self._note_engagement(message, state)
 
         # Persist to short-term buffer
-        if self.config.memory.enabled:
-            self.buffer.append(
-                channel_id=channel_id,
-                guild_id=msg.guild_id,
-                user_id=str(msg.author_id),
-                display_name=msg.author_name,
-                role="assistant" if msg.is_bot else "user",
-                content=msg.content,
-            )
+        self.buffer.append(
+            channel_id=channel_id,
+            guild_id=msg.guild_id,
+            user_id=str(msg.author_id),
+            display_name=msg.author_name,
+            role="bot" if msg.is_bot else "user",
+            content=msg.content,
+        )
+        if not msg.is_bot:
+            _extraction_counters[channel_id] = _extraction_counters.get(channel_id, 0) + 1
+            self._arm_extraction(channel_id)
 
         # Explicit "remember this" request — extract now, don't wait for idle.
-        if (
-            self.config.memory.enabled
-            and not msg.is_bot
-            and wants_memory(msg.content)
-        ):
+        if not msg.is_bot and wants_memory(msg.content):
             LOGGER.info("[%s] memory_request_detected channel=%s", request_id, channel_id)
             _extraction_counters[channel_id] = self.config.memory.fact_extraction_min_messages
             asyncio.get_running_loop().create_task(self._idle_extract(channel_id))
@@ -231,34 +223,24 @@ class Gateway(discord.Client):
             return None
 
         memories: list[dict] = []
-        turns: list[dict] = []
-        if self.config.memory.enabled:
-            # Trigger summarization if buffer is large
-            turns = self.buffer.read(job.channel_id)
-            if turns:
-                await self.summarizer.maybe_compact(
-                    job.channel_id,
-                    turns,
-                    token_threshold=self.config.memory.buffer_max_tokens,
-                    keep_recent=5,
-                )
+        turns = self.buffer.read(job.channel_id)
 
-            # Search long-term memory for relevant facts
-            recent_human = [
-                t.get("content", "") for t in reversed(turns)
-                if t.get("role") != "assistant"
-            ][:3]
-            if recent_human:
-                query = " ".join(reversed(recent_human))
-                # Search for facts from the trigger author
-                user_facts = self.long_term.search(
-                    str(job.trigger_author_id), query
-                )
-                memories = [f["fact"] for f in user_facts]
+        # Search long-term memory for relevant facts
+        recent_human = [
+            t.get("content", "") for t in reversed(turns)
+            if t.get("role") == "user"
+        ][:3]
+        if recent_human:
+            query = " ".join(reversed(recent_human))
+            # Search for facts from the trigger author
+            user_facts = self.long_term.search(
+                str(job.trigger_author_id), query
+            )
+            memories = [f["fact"] for f in user_facts]
 
         result = await self.responder.run(
             job, state, request_id,
-            channel_id=job.channel_id,
+            turns=turns,
             memories=memories,
         )
         if result is None:
@@ -272,11 +254,8 @@ class Gateway(discord.Client):
             return None
 
         # Anti-repeat guard: never send what the bot already said recently.
-        # Persisted turns survive restarts; the 20-msg deque is the memory-off fallback.
         bot_id = str(self.user.id) if self.user else ""
-        recent_bot = [
-            t.get("content", "") for t in turns if t.get("user_id") == bot_id
-        ][-8:] or [m.content for m in state.buffer if m.is_bot][-5:]
+        recent_bot = [t.get("content", "") for t in turns if t.get("user_id") == bot_id][-8:]
         if reply_text and any(
             token_sort_ratio(reply_text.lower(), prev.lower()) >= 70
             for prev in recent_bot if prev
@@ -311,15 +290,14 @@ class Gateway(discord.Client):
             state.recent_gifs.append(reply.gif)
 
         # Persist bot reply to buffer
-        if self.config.memory.enabled:
-            self.buffer.append(
-                channel_id=job.channel_id,
-                guild_id=job.snapshot[-1].guild_id if job.snapshot else None,
-                user_id=str(self.user.id),
-                display_name=self.user.display_name,
-                role="assistant",
-                content=reply.text,
-            )
+        self.buffer.append(
+            channel_id=job.channel_id,
+            guild_id=job.snapshot[-1].guild_id if job.snapshot else None,
+            user_id=str(self.user.id),
+            display_name=self.user.display_name,
+            role="assistant",
+            content=reply.text,
+        )
 
         self.registry.append(job.channel_id, Msg(
             message_id=sent.id,
@@ -332,10 +310,6 @@ class Gateway(discord.Client):
         if not job.forced:
             state.interjections.append(time.time())
             self.gate.start_watch(state, time.time())
-
-        if self.config.memory.enabled:
-            _extraction_counters[job.channel_id] = _extraction_counters.get(job.channel_id, 0) + 1
-            self._arm_extraction(job.channel_id)
 
     # ------------------------------------------------------------------
     # Long-term memory extraction
@@ -367,27 +341,12 @@ class Gateway(discord.Client):
                 del _extraction_timers[channel_id]
 
             turns = self.buffer.read(channel_id)[-12:]
-            if not turns:
+            if not any(t.get("role") == "user" for t in turns):
                 return
 
             LOGGER.info("fact_extract_started channel=%s turns=%s", channel_id, len(turns))
-
-            # Determine user_id and guild_id from turns
-            human_turns = [t for t in turns if t.get("role") != "assistant"]
-            if not human_turns:
-                return
-
-            last_human = human_turns[-1]
-            user_id = last_human.get("user_id", "")
-            display_name = last_human.get("display_name", "user")
-            guild_id = None
-            if turns:
-                guild_id_str = turns[-1].get("guild_id")
-                if guild_id_str:
-                    try:
-                        guild_id = int(guild_id_str)
-                    except (ValueError, TypeError):
-                        pass
+            guild = getattr(self.get_channel(channel_id), "guild", None)
+            guild_id = guild.id if guild else None
 
             candidates = await self.fact_extractor.extract(
                 turns, channel_id, guild_id
@@ -396,13 +355,9 @@ class Gateway(discord.Client):
                 LOGGER.info("fact_extract channel=%s extracted=0", channel_id)
                 return
 
-            stored, updated, rejected = self.long_term.remember(
-                user_id, display_name, candidates, guild_id
-            )
-            LOGGER.info(
-                "fact_extract channel=%s extracted=%s stored=%s updated=%s rejected=%s",
-                channel_id, len(candidates), stored, updated, rejected,
-            )
+            # Each fact goes to the person it is about; remember() logs the outcome.
+            for fact in candidates:
+                self.long_term.remember(fact["user_id"], fact["display_name"], [fact], guild_id)
         except Exception:
             LOGGER.exception("idle_extract_failed channel=%s", channel_id)
 

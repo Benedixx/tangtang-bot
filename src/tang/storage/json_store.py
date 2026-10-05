@@ -20,7 +20,7 @@ class JsonStore:
     Key rules:
     - Atomic writes only: write to *.tmp, then os.replace() — never write the target file directly.
     - File locking via filelock around read-modify-write cycles.
-    - One directory per data type: buffers/, summaries/, facts/, archive/.
+    - One directory per data type: buffers/, facts/.
     - Per-entity file, not one giant file.
     """
 
@@ -29,7 +29,7 @@ class JsonStore:
         self._ensure_dirs()
 
     def _ensure_dirs(self) -> None:
-        for subdir in ("buffers", "summaries", "facts", "archive"):
+        for subdir in ("buffers", "facts"):
             (self._root / subdir).mkdir(parents=True, exist_ok=True)
 
     def _lock_path(self, path: Path) -> Path:
@@ -81,36 +81,3 @@ class JsonStore:
             except Exception:
                 LOGGER.exception("json_write_lock_failed path=%s", path)
                 return False
-
-    def append_jsonl(self, path: Path, record: dict[str, Any]) -> bool:
-        """Append a JSON line to a .jsonl file (archive). Uses file lock."""
-        lock = FileLock(self._lock_path(path))
-        with lock:
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                with open(path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
-                return True
-            except OSError:
-                LOGGER.exception("jsonl_append_failed path=%s", path)
-                return False
-
-    def read_jsonl(self, path: Path) -> list[dict[str, Any]]:
-        """Read all lines from a .jsonl file."""
-        if not path.exists():
-            return []
-        lock = FileLock(self._lock_path(path))
-        with lock:
-            records = []
-            try:
-                for line in path.read_text(encoding="utf-8").splitlines():
-                    line = line.strip()
-                    if line:
-                        records.append(json.loads(line))
-            except (json.JSONDecodeError, OSError):
-                LOGGER.exception("jsonl_read_failed path=%s", path)
-            return records
-
-    def ensure_dirs(self) -> None:
-        """Public: create data directories if missing (startup migration)."""
-        self._ensure_dirs()

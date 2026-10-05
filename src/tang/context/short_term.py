@@ -35,9 +35,10 @@ class ShortTermBuffer:
     }
     """
 
-    def __init__(self, store: JsonStore) -> None:
+    def __init__(self, store: JsonStore, max_turns: int = 60) -> None:
         self._store = store
         self._dir = Path(store._root) / "buffers"
+        self._max_turns = max_turns
 
     def _path(self, channel_id: int) -> Path:
         return self._dir / f"{channel_id}.json"
@@ -72,6 +73,7 @@ class ShortTermBuffer:
             "timestamp": _now_iso(),
         }
         data["turns"].append(turn)
+        data["turns"] = data["turns"][-self._max_turns:]
         data["updated_at"] = _now_iso()
         data["channel_id"] = str(channel_id)
         if guild_id is not None:
@@ -79,28 +81,3 @@ class ShortTermBuffer:
 
         self._store.write_json(path, data)
         return data["turns"]
-
-    def trim(self, channel_id: int, keep_last: int = 5) -> list[dict[str, Any]]:
-        """Trim buffer to keep only the last N turns. Returns remaining turns."""
-        path = self._path(channel_id)
-        data = self._store.read_json(path, default={"turns": []})
-        turns = data.get("turns", [])
-        if len(turns) > keep_last:
-            data["turns"] = turns[-keep_last:]
-            data["updated_at"] = _now_iso()
-            self._store.write_json(path, data)
-            return data["turns"]
-        return turns
-
-    def clear(self, channel_id: int) -> None:
-        path = self._path(channel_id)
-        self._store.write_json(path, {
-            "channel_id": str(channel_id),
-            "guild_id": None,
-            "updated_at": _now_iso(),
-            "turns": [],
-        })
-
-    def count_turns(self, channel_id: int) -> int:
-        turns = self.read(channel_id)
-        return len(turns)
