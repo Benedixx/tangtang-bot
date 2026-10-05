@@ -12,7 +12,7 @@ from .config import Config
 from .context.long_term import LongTermMemory
 from .context.short_term import ShortTermBuffer
 from .context.summarizer import Summarizer
-from .filters import tier0_reason
+from .filters import is_command, tier0_reason
 from .gate import Gate
 from .groq import GroqClient
 from .guard import Guard
@@ -61,7 +61,7 @@ class Gateway(discord.Client):
             debounce_s=config.chat.debounce_s,
         )
         self.gate_groq = GroqClient(config.groq_api_key, config.models.gate)
-        self.gate = Gate(self.gate_groq, config.chat)
+        self.gate = Gate(self.gate_groq, config.chat, config.bot_name)
         self.guard = Guard()
         self.persona = PersonaBuilder(config)
         self.gif_store = GifStore(config.gif.dir, config.gif.manifest)
@@ -160,7 +160,8 @@ class Gateway(discord.Client):
             is_bot=message.author.bot or message.webhook_id is not None,
             guild_id=message.guild.id if message.guild else None,
         )
-        if not msg.content:
+        # Bot commands are neither triggers nor context.
+        if not msg.content or is_command(msg.content):
             return
 
         channel_id = message.channel.id

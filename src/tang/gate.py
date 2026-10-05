@@ -14,13 +14,16 @@ _WATCH_S = 60.0
 _THRESHOLD_RAISE = 0.05
 _THRESHOLD_DECAY = 0.03
 _THRESHOLD_MAX = 0.95
+_MIN_GAP_S = 600.0
 
 _GATE_SYSTEM = """\
-You are the engagement scheduler for a casual Discord chat bot.
-
-You receive recent conversation lines as "name: text". Decide whether the bot should send a message now.
-- respond true only if the latest message is directed at the bot or the bot can naturally add something of value.
-- otherwise respond false.
+You decide whether NAME, a regular member of a casual Discord chat, should jump in uninvited.
+You receive recent lines as "name: text". Lines from "NAME" are its own.
+respond false if the latest message:
+- pings or replies to someone else (@name),
+- has no real text (emoji, links, reactions),
+- or NAME spoke in the last few lines and nobody answered it.
+respond true only if NAME has something genuinely funny or useful to add to what people are talking about.
 Output JSON only:
 {"respond": true, "confidence": 0.72}
 confidence is how sure you are (0.0 to 1.0)."""
@@ -29,9 +32,10 @@ confidence is how sure you are (0.0 to 1.0)."""
 class Gate:
     """Binary engagement gate with an adaptive per-channel threshold."""
 
-    def __init__(self, client: GroqClient, config: ChatConfig) -> None:
+    def __init__(self, client: GroqClient, config: ChatConfig, bot_name: str) -> None:
         self._client = client
         self._config = config
+        self._system = _GATE_SYSTEM.replace("NAME", bot_name)
 
     async def decide(self, job: Job, state: ChannelState, now: float, request_id: str) -> bool:
         if job.forced:
@@ -42,7 +46,7 @@ class Gate:
 
         context = "\n".join(f"{m.author_name}: {m.content}" for m in job.snapshot)
         messages: list[dict[str, str]] = [
-            {"role": "system", "content": _GATE_SYSTEM},
+            {"role": "system", "content": self._system},
             {"role": "user", "content": context or "(no conversation)"},
         ]
         for attempt in range(2):
@@ -85,4 +89,6 @@ class Gate:
 
     def _within_budget(self, state: ChannelState, now: float) -> bool:
         state.interjections = [t for t in state.interjections if now - t < 3600.0]
+        if state.interjections and now - state.interjections[-1] < _MIN_GAP_S:
+            return False
         return len(state.interjections) < self._config.budget_per_hour
